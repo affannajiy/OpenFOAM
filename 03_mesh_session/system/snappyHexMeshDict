@@ -53,7 +53,7 @@ castellatedMeshControls
         inner-cylinder
         {
             mode            inside;
-            levels          ( ( 1 1 ) );
+            levels          ( ( 1 2 ) );
             gapLevel        ( 3 0 3 );
             gapMode         mixed;
         }
@@ -71,7 +71,7 @@ castellatedMeshControls
         }
         inner-cylinder
         {
-            level           ( 0 1 );
+            level           ( 0 2 );
             patchInfo
             {
                 type            wall;

@@ -23,21 +23,21 @@ FoamFile
         type            empty;
         inGroups        1(empty);
         nFaces          0;
-        startFace       6896;
+        startFace       56116;
     }
     geom
     {
         type            wall;
         inGroups        2(walls wall);
         nFaces          0;
-        startFace       6896;
+        startFace       56116;
     }
     inner-cylinder
     {
         type            wall;
         inGroups        2(walls wall);
-        nFaces          1184;
-        startFace       6896;
+        nFaces          4696;
+        startFace       56116;
     }
 )
 
