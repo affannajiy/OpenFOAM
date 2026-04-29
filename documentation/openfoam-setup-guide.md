@@ -50,6 +50,7 @@ curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
 
 ```bash
 sudo apt-get update
+sudo apt-get upgrade
 ```
 
 ```bash
@@ -71,6 +72,7 @@ Clone or copy the repository there if it isn't already present:
 
 ```bash
 mkdir -p /mnt/c/OpenFOAM
+mkdir 01_utilities
 ```
 
 The directory should contain at minimum:

@@ -1,17 +1,50 @@
 #!/usr/bin/env python3
 """
-Filename:    openfoam_ui.py
-Author:      [placeholder]
-Date:        2026-04-23
-Description: Unified tkinter GUI for OpenFOAM mesh utilities.
-             Tab 1 wraps generateBackgroundMesh.py via subprocess.
-             Tab 2 re-implements generateSnappyHexMeshDict.py logic
-             directly, using foamDictionary subprocess calls.
+openfoam_ui.py — Unified Tkinter GUI for OpenFOAM mesh generation utilities.
 
-Dependencies:
-    python3-tk   (sudo apt-get install python3-tk)
+Overview
+--------
+This tool provides a two-tab GUI that guides the user through the full
+snappyHexMesh workflow:
 
-Launch (from an OpenFOAM case directory with the environment sourced):
+  Tab 1 — BackgroundMeshTab
+      Wraps generateBackgroundMesh.py via subprocess.  The user picks an
+      STL file, sets dx/dy/dz cell sizes, and clicks "Generate Background
+      Mesh".  Internally this runs surfaceCheck to read the STL bounding
+      box, scales it by 1.1×, computes integer cell counts, writes
+      system/blockMeshDict, and then calls the blockMesh binary.
+
+  Tab 2 — SnappyHexMeshTab
+      Re-implements the logic of generateSnappyHexMeshDict.py directly
+      inside the GUI (i.e. it does NOT call that script; it drives
+      foamDictionary subprocess calls itself).  The five numbered sections
+      map to the three snappyHexMesh phases:
+        Section 1  →  Geometry (STL files + shapes → geometry{} block)
+        Section 2  →  Castellation & refinement controls
+        Section 3  →  Snap controls
+        Section 4  →  Layer addition (optional prismatic inflation layers)
+        Section 5  →  Generate snappyHexMeshDict + run snappyHexMesh binary
+
+  LogPanel
+      Thread-safe scrolling output console shared by both tabs.
+      Worker threads push lines onto a queue; the Tk main loop drains it
+      every 50 ms so all widget writes stay on the main thread.
+
+  StatusBar
+      Bottom bar showing a blinking status dot and the current working
+      directory path.
+
+Environment requirement
+-----------------------
+All OpenFOAM binaries (blockMesh, snappyHexMesh, foamDictionary, …) are
+only available inside WSL after sourcing the OpenFOAM environment:
+    source /usr/lib/openfoam/openfoam2506/etc/bashrc
+Every shell command launched by this GUI does this automatically by
+running:  bash -c "source <bashrc> && <command>"
+
+Dependencies:  python3-tk  (sudo apt-get install python3-tk)
+
+Launch (from an OpenFOAM case directory, inside WSL):
     python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
 """
 
@@ -28,31 +61,39 @@ from tkinter import ttk, filedialog, messagebox
 # Constants
 # ---------------------------------------------------------------------------
 
+# --- Script paths ---
 SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
 GENERATE_BG_MESH = os.path.join(SCRIPT_DIR, "generateBackgroundMesh.py")
 
-# Keysight colour palette
-KS_RED       = "#E90029"       # Keysight brand red — primary actions, header accents
+# --- Keysight brand colours ---
+KS_RED       = "#E90029"       # Primary action buttons, section headers, focus rings
 KS_RED_DARK  = "#B8001F"       # Hover / pressed state for red buttons
-KS_RED_LT    = "#FDE8EC"       # Light red tint — focus backgrounds
-KS_BLACK     = "#1A1A1A"       # Header bar, dark surfaces
-KS_CHARCOAL  = "#2D2D2D"       # Log panel background
-BG_APP       = "#F4F4F4"       # App background — light gray
-BG_CARD      = "#FFFFFF"       # Card background — white
-BORDER       = "#CECECE"       # Default border — medium gray
-BORDER_FOCUS = "#E90029"       # Focus ring — red
-TEXT_PRIMARY = "#1A1A1A"       # Primary text — near black
-TEXT_MUTED   = "#6B6B6B"       # Secondary label text — gray
-TEXT_WHITE   = "#FFFFFF"       # White text on dark backgrounds
-STATUS_RUN   = "#B45309"       # Running indicator — amber (unchanged)
-STATUS_DONE  = "#166534"       # Done — green (unchanged)
-STATUS_ERR   = "#991B1B"       # Error — dark red (unchanged)
+KS_RED_LT    = "#FDE8EC"       # Light red tint used for active focus backgrounds
+KS_BLACK     = "#1A1A1A"       # Header bar and other dark surface backgrounds
+KS_CHARCOAL  = "#2D2D2D"       # Log panel background (dark terminal feel)
 
+# --- Semantic UI colours (backgrounds, borders, text) ---
+BG_APP       = "#F4F4F4"       # App-level background — light neutral gray
+BG_CARD      = "#FFFFFF"       # White card surfaces that contain form controls
+BORDER       = "#CECECE"       # Default card / input border — medium gray
+BORDER_FOCUS = "#E90029"       # Border colour when an input has keyboard focus
+TEXT_PRIMARY = "#1A1A1A"       # Main readable text — near black
+TEXT_MUTED   = "#6B6B6B"       # Subdued label text (field names, hints)
+TEXT_WHITE   = "#FFFFFF"       # Text on dark / coloured surfaces
+
+# --- Status indicator colours (used by the blinking dot in StatusBar) ---
+STATUS_RUN   = "#B45309"       # Amber — operation in progress
+STATUS_DONE  = "#166534"       # Green — completed successfully
+STATUS_ERR   = "#991B1B"       # Dark red — completed with error
+
+# --- Status tuples (text, dot colour) consumed by StatusBar.set() ---
 STATUS_IDLE    = ("Ready",             "#475569")
 STATUS_RUNNING = ("Running...",        STATUS_RUN)
 STATUS_DONE_S  = ("Done",              STATUS_DONE)
 STATUS_ERROR   = ("Error — check log", STATUS_ERR)
 
+# --- OpenFOAM boundary-type mappings ---
+# foamDictionary writes the singular type name; inGroups needs the plural form.
 BOUNDARY_TYPES = ["wall", "patch", "faceZone"]
 PLURAL_MAP     = {"wall": "walls", "patch": "patches", "faceZone": "faceZones"}
 
@@ -62,9 +103,12 @@ PLURAL_MAP     = {"wall": "walls", "patch": "patches", "faceZone": "faceZones"}
 
 def _find_paraview_exe():
     """
-    Scan C:/Program Files (WSL: /mnt/c/Program Files) for any ParaView installation.
-    Returns the WSL path to paraview.exe, or None if not found.
-    Picks the lexicographically last match so the newest version wins.
+    Scan the Windows Program Files tree (via WSL mount) for ParaView.
+
+    Returns the WSL-format path to paraview.exe (e.g.
+    /mnt/c/Program Files/ParaView 5.x/bin/paraview.exe), or None if no
+    installation is found.  The lexicographically last match is returned so
+    the highest-versioned installation wins.
     """
     import glob
     pattern = "/mnt/c/Program Files/ParaView*/bin/paraview.exe"
@@ -73,6 +117,7 @@ def _find_paraview_exe():
 
 
 def positive_float(value):
+    """Return float(value) if it is strictly positive, otherwise None."""
     try:
         v = float(value)
         return v if v > 0 else None
@@ -81,7 +126,18 @@ def positive_float(value):
 
 
 def get_stl_zone_names(path):
-    """Return list of solid names from an ASCII STL file."""
+    """
+    Parse an ASCII STL file and return the list of solid (zone) names.
+
+    Each "solid <name>" line in an ASCII STL defines one named region.
+    A single-region file has one name; a multi-region file has several.
+    This is important because snappyHexMesh treats multi-region STLs
+    differently: each zone gets its own refinement entry under
+    geometry/<file>/regions/, whereas a single-zone STL is referenced
+    directly by its file stem.
+
+    Returns an empty list if the file cannot be read or is binary STL.
+    """
     try:
         with open(path, "r", errors="ignore") as fh:
             lines = fh.readlines()
@@ -97,7 +153,12 @@ def get_stl_zone_names(path):
 
 
 def make_card(parent, title=None, pady_inner=14):
-    """White card with optional bold title above it."""
+    """
+    Build and pack a white rounded-border card into *parent*.
+
+    Optionally renders a bold red title label above the card border.
+    Returns the inner body frame into which caller should place widgets.
+    """
     outer = tk.Frame(parent, bg=BG_APP)
     outer.pack(fill=tk.X, padx=20, pady=(0, 14))
     if title:
@@ -117,6 +178,27 @@ def make_card(parent, title=None, pady_inner=14):
 # ---------------------------------------------------------------------------
 
 class LogPanel(tk.Frame):
+    """
+    Thread-safe scrolling output console displayed beneath both tabs.
+
+    Thread-safety pattern
+    ---------------------
+    Tkinter widgets must only be written from the main (GUI) thread.
+    Worker threads therefore never write to self.text directly; instead
+    they call self.write(), which puts a (message, tag) tuple onto
+    self._q (a thread-safe queue).  The Tk event loop calls _poll()
+    every 50 ms, which drains the queue and appends lines to the Text
+    widget — always on the main thread.
+
+    Text tags and their colours
+    ---------------------------
+    "error"  →  light red   (#FCA5A5) — stderr / exception messages
+    "warn"   →  amber       (#FCD34D) — non-fatal warnings
+    "info"   →  light blue  (#93C5FD) — status / progress milestones
+    "cmd"    →  slate gray  (#64748B) — the shell command being run
+    ""       →  default fg  (#E2E8F0) — regular stdout output
+    """
+
     def __init__(self, parent, **kw):
         super().__init__(parent, bg=BG_APP, **kw)
         self._q = queue.Queue()
@@ -172,6 +254,22 @@ class LogPanel(tk.Frame):
 # ---------------------------------------------------------------------------
 
 class StatusBar(tk.Frame):
+    """
+    Slim black bar pinned to the bottom of the window.
+
+    Contains two elements:
+      - A coloured 10 px dot (left) that blinks red/amber while a
+        background worker is running, then holds a steady colour for
+        idle / done / error states.
+      - A short status text label next to the dot.
+      - A muted path label (right) that refreshes every 2 s to show
+        the current working directory — useful because os.chdir() calls
+        change it silently.
+
+    Call set(STATUS_TUPLE) to update the bar; pass one of the four
+    STATUS_* constants defined at the top of this file.
+    """
+
     def __init__(self, parent, **kw):
         super().__init__(parent, bg=KS_BLACK, height=30, **kw)
         self.pack_propagate(False)
@@ -222,6 +320,30 @@ class StatusBar(tk.Frame):
 # ---------------------------------------------------------------------------
 
 class BackgroundMeshTab(tk.Frame):
+    """
+    Tab 1 — Background (block) mesh generator.
+
+    Workflow
+    --------
+    1. User selects an STL file and enters dx/dy/dz cell sizes.
+    2. Clicking "Generate Background Mesh" launches a worker thread that:
+       a. Calls surfaceCheck on the STL to obtain the bounding box.
+       b. Scales the box by 1.1× on each side for clearance.
+       c. Computes integer cell counts from the box dimensions ÷ dx/dy/dz.
+       d. Writes system/blockMeshDict from a formatted string template.
+       e. Runs the blockMesh binary (needs the OpenFOAM bashrc sourced).
+       f. Creates a zero-byte <case_name>.foam file so ParaView can detect
+          the case when opened via File > Open.
+    3. Output is streamed line-by-line to the shared LogPanel.
+
+    Key attributes
+    --------------
+    self._stl      StringVar — path to the selected STL file
+    self._d_vars   dict[name→StringVar] — the dx/dy/dz input values
+    self._running  bool — True while the worker thread is alive (prevents
+                   double-launch)
+    """
+
     def __init__(self, parent, log: LogPanel, status: StatusBar, **kw):
         kw.setdefault("bg", BG_APP)
         super().__init__(parent, **kw)
@@ -231,9 +353,10 @@ class BackgroundMeshTab(tk.Frame):
         self._build()
 
     def _build(self):
+        """Build the two form cards (STL file + grid resolution) and the action row."""
         tk.Frame(self, bg=BG_APP, height=16).pack()
 
-        # STL file card
+        # STL file card — single path entry + Browse button
         stl_body = make_card(self, "STL file")
         stl_row = tk.Frame(stl_body, bg=BG_CARD)
         stl_row.pack(fill=tk.X)
@@ -265,6 +388,12 @@ class BackgroundMeshTab(tk.Frame):
             self._d_vars[name] = v
             self._d_errs[name] = err
 
+        # Fix 3: overwrite warning banner (above action button)
+        self._overwrite_banner = tk.Label(
+            self, text="", bg=BG_CARD, fg="#7A5C00",
+            font=("Segoe UI", 9), wraplength=560, anchor="w", justify="left")
+        self._overwrite_banner.pack(fill=tk.X, padx=20, pady=(0, 4))
+
         # Action row (right-aligned, no card)
         btn_row = tk.Frame(self, bg=BG_APP)
         btn_row.pack(fill=tk.X, padx=20, pady=8)
@@ -272,14 +401,66 @@ class BackgroundMeshTab(tk.Frame):
                                     style="P.TButton", command=self._run)
         self._run_btn.pack(side=tk.RIGHT)
 
+        # Fix 3: trace STL var to keep banner current
+        self._stl.trace_add("write", self._update_bg_mesh_banner)
+        self._update_bg_mesh_banner()
+
     def _browse(self):
         p = filedialog.askopenfilename(
             title="Select STL file",
             filetypes=[("STL files", "*.stl"), ("All files", "*.*")])
-        if p:
-            self._stl.set(p)
+        if not p:
+            return
+        self._stl.set(p)
+
+        # Fix 4: infer case root from path
+        norm = p.replace("\\", "/")
+        marker = "/constant/trisurface/"
+        idx = norm.lower().find(marker)
+        if idx >= 0:
+            inferred_root = p[:idx]
+        else:
+            inferred_root = os.path.dirname(p)
+
+        if messagebox.askyesno(
+                "Change working directory?",
+                f"Detected case root:\n  {inferred_root}\n\n"
+                "Change the working directory to this location?"):
+            os.chdir(inferred_root)
+            self._log.write(
+                f"[Background Mesh] Case directory set to: {inferred_root}\n", "info")
+            self._update_bg_mesh_banner()
+
+    def _update_bg_mesh_banner(self, *_args):
+        """Refresh overwrite warning banner based on current working directory."""
+        cwd = os.getcwd()
+        will_overwrite = []
+        for rel_parts in (
+            ("system", "blockMeshDict"),
+            ("programOutputs", "blockMesh.log"),
+            ("programOutputs", "surfaceCheck_blockMesh.log"),
+        ):
+            if os.path.isfile(os.path.join(cwd, *rel_parts)):
+                will_overwrite.append("/".join(rel_parts))
+        if os.path.isdir(os.path.join(cwd, "constant", "polyMesh")):
+            will_overwrite.append("constant/polyMesh/")
+
+        if will_overwrite:
+            self._overwrite_banner.configure(
+                text="Will overwrite: " + ",  ".join(will_overwrite),
+                bg="#FFF8E1", fg="#7A5C00")
+        else:
+            self._overwrite_banner.configure(text="", bg=BG_CARD)
 
     def _validate(self):
+        """
+        Validate all form inputs before launching the worker thread.
+
+        Checks that the STL path points to an existing file and that all
+        three cell-size fields contain strictly positive numbers.  Displays
+        inline error labels next to each invalid field.  Returns True only
+        when every field is valid.
+        """
         ok = True
         self._stl_err.configure(text="")
         for e in self._d_errs.values():
@@ -300,8 +481,37 @@ class BackgroundMeshTab(tk.Frame):
         return ok
 
     def _run(self):
+        """
+        Validate inputs, confirm any overwrites, then start the mesh worker thread.
+
+        The worker runs:  bash -c "source <OF_BASHRC> && python3 generateBackgroundMesh.py ..."
+        Sourcing the OpenFOAM bashrc is required because WSL does not inherit
+        a previously sourced environment from the parent shell — the OF binaries
+        (surfaceCheck, blockMesh) are only on PATH after that source call.
+        """
         if self._running or not self._validate():
             return
+
+        # Build list of files that would be overwritten, so we can ask first
+        cwd = os.getcwd()
+        will_overwrite = []
+        for rel_parts in (
+            ("system", "blockMeshDict"),
+            ("programOutputs", "blockMesh.log"),
+            ("programOutputs", "surfaceCheck_blockMesh.log"),
+        ):
+            if os.path.isfile(os.path.join(cwd, *rel_parts)):
+                will_overwrite.append("/".join(rel_parts))
+        if os.path.isdir(os.path.join(cwd, "constant", "polyMesh")):
+            will_overwrite.append("constant/polyMesh/")
+
+        if will_overwrite:
+            msg = ("The following will be overwritten:\n\n"
+                   + "\n".join(f"  • {item}" for item in will_overwrite)
+                   + "\n\nThese will be overwritten. Continue?")
+            if not messagebox.askyesno("Overwrite existing files?", msg):
+                return
+
         self._running = True
         self._run_btn.configure(state=tk.DISABLED)
         self._status.set(STATUS_RUNNING)
@@ -332,6 +542,8 @@ class BackgroundMeshTab(tk.Frame):
                     cwd = os.getcwd()
                     case_name = os.path.basename(cwd)
                     foam_path = os.path.join(cwd, f"{case_name}.foam")
+                    # ParaView requires a zero-byte .foam file in the case root
+                    # to locate the case when opened via File > Open.
                     open(foam_path, "w").close()
                     self._log.write(f"[Background Mesh] Created: {foam_path}\n", "info")
                     self._log.write("[Background Mesh] Done.\n", "info")
@@ -355,6 +567,43 @@ class BackgroundMeshTab(tk.Frame):
 # ---------------------------------------------------------------------------
 
 class SnappyHexMeshTab(tk.Frame):
+    """
+    Tab 2 — snappyHexMeshDict generator + mesh runner.
+
+    snappyHexMesh overview
+    ----------------------
+    snappyHexMesh refines a background block mesh against STL geometry in
+    three sequential phases controlled by one dictionary:
+      1. Castellate — carve cells that lie outside the geometry; apply
+         volume and surface refinement levels.
+      2. Snap       — project castellated cell faces onto the STL surface.
+      3. Layer      — extrude prismatic inflation layers from wall patches.
+
+    How the five UI sections map to those phases
+    ---------------------------------------------
+    Section 1  →  Geometry: select STL files + optional analytic shapes.
+                  Locked in by "Apply geometry →"; until then sections 2–4
+                  show a placeholder message.
+    Section 2  →  Castellation & refinement: feature edge levels, volume
+                  refinement inside regions, gap refinement parameters, and
+                  per-surface refinement levels / patch types.
+    Section 3  →  Snap controls: implicit (geometry-derived) vs. explicit
+                  (edge-file-driven) feature snapping strategy.
+    Section 4  →  Layer addition: optional prismatic layers on wall patches.
+    Section 5  →  Generate dict + run binary.  "Generate snappyHexMeshDict"
+                  writes system/snappyHexMeshDict (and fvSchemes/fvSolution
+                  when layers are enabled).  "Run snappyHexMesh" then calls
+                  the binary and streams its output to the log.
+
+    Key instance attributes
+    -----------------------
+    self._cwd              StringVar — current working directory (case root)
+    self._surface_files    list[str] — STL filenames ticked as "Surface"
+    self._edge_files       list[str] — STL filenames ticked as "Edge"
+    self._shapes           list[dict] — analytic shape descriptors
+    self._surf_ref_data    dict[region→dict] — per-region refinement widgets
+    self._region_zone_list list[list[str]] — zone names per surface file
+    """
 
     def __init__(self, parent, log: LogPanel, status: StatusBar, **kw):
         kw.setdefault("bg", BG_APP)
@@ -385,6 +634,12 @@ class SnappyHexMeshTab(tk.Frame):
         self._loc_x = self._loc_y = self._loc_z = tk.StringVar()
 
         self._build_ui()
+
+        # Fix 3 / Fix 1A: update banners and time dirs whenever cwd changes
+        self._cwd.trace_add("write", self._on_cwd_changed)
+        self._update_dict_gen_banner()
+        self._update_snappy_run_banner()
+        self._update_time_dirs_label()
 
     # ------------------------------------------------------------------ layout
 
@@ -450,9 +705,18 @@ class SnappyHexMeshTab(tk.Frame):
     def _change_cwd(self):
         d = filedialog.askdirectory(title="Select OpenFOAM case directory",
                                     initialdir=self._cwd.get())
-        if d:
-            self._cwd.set(d)
-            os.chdir(d)
+        if not d:
+            return
+        self._cwd.set(d)
+        os.chdir(d)
+        # Fix 4: warn if directory doesn't look like a case root
+        if not os.path.isdir(os.path.join(d, "constant", "triSurface")):
+            messagebox.showwarning(
+                "Possible invalid case root",
+                "The selected directory does not appear to contain\n"
+                "constant/triSurface/.\n\n"
+                "It may not be a valid OpenFOAM case root, but the "
+                "change has been applied.")
 
     def _scroll_bottom(self):
         self._canvas.update_idletasks()
@@ -547,30 +811,51 @@ class SnappyHexMeshTab(tk.Frame):
                      bg=BG_CARD, font=("Segoe UI", 9)).pack(anchor="w")
             return
 
-        hdr = tk.Frame(self._file_list_frame, bg="#EEF2F8", height=28)
-        hdr.pack(fill=tk.X)
-        hdr.pack_propagate(False)
-        tk.Label(hdr, text="Filename", width=42, anchor="w",
-                 bg="#EEF2F8", fg=KS_RED,
-                 font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=6)
-        tk.Label(hdr, text="Surface", width=9, anchor="center",
-                 bg="#EEF2F8", fg=KS_RED,
-                 font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
-        tk.Label(hdr, text="Edge", width=9, anchor="center",
-                 bg="#EEF2F8", fg=KS_RED,
-                 font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+        # Fix 4: offer cwd correction if path normalisation differs
+        expected_root = os.path.normcase(os.path.abspath(
+            os.path.join(tri_dir, "..", "..")))
+        actual_cwd = os.path.normcase(os.path.abspath(self._cwd.get()))
+        if expected_root != actual_cwd:
+            inferred_root = os.path.abspath(os.path.join(tri_dir, "..", ".."))
+            if messagebox.askyesno(
+                    "Change working directory?",
+                    f"Detected case root:\n  {inferred_root}\n\n"
+                    "Change the working directory to this location?"):
+                self._cwd.set(inferred_root)
+                os.chdir(inferred_root)
+
+        # Fix 5: grid layout so headers align exactly over checkboxes
+        grid = tk.Frame(self._file_list_frame, bg=BG_CARD)
+        grid.pack(fill=tk.X)
+        grid.columnconfigure(0, weight=1)
+        grid.columnconfigure(1, weight=0, minsize=80)
+        grid.columnconfigure(2, weight=0, minsize=80)
+
+        hdr_bg = "#EEF2F8"
+        tk.Label(grid, text="Filename", bg=hdr_bg, fg=KS_RED,
+                 font=("Segoe UI", 9, "bold"), anchor="w").grid(
+            row=0, column=0, sticky="ew", padx=6, pady=2)
+        tk.Label(grid, text="Surface", bg=hdr_bg, fg=KS_RED,
+                 font=("Segoe UI", 9, "bold"), anchor="center").grid(
+            row=0, column=1, sticky="ew", pady=2)
+        tk.Label(grid, text="Edge", bg=hdr_bg, fg=KS_RED,
+                 font=("Segoe UI", 9, "bold"), anchor="center").grid(
+            row=0, column=2, sticky="ew", pady=2)
+        grid.rowconfigure(0, minsize=28)
 
         for i, fname in enumerate(files):
+            row_idx = i + 1
             row_bg = BG_CARD if i % 2 == 0 else "#F8FAFC"
-            row = tk.Frame(self._file_list_frame, bg=row_bg, height=28)
-            row.pack(fill=tk.X)
-            row.pack_propagate(False)
-            tk.Label(row, text=fname, width=42, anchor="w",
-                     bg=row_bg, font=("Consolas", 9),
-                     fg=TEXT_PRIMARY).pack(side=tk.LEFT, padx=6)
-            sv, ev = tk.BooleanVar(), tk.BooleanVar()
-            ttk.Checkbutton(row, variable=sv).pack(side=tk.LEFT, padx=18)
-            ttk.Checkbutton(row, variable=ev).pack(side=tk.LEFT, padx=12)
+            tk.Label(grid, text=fname, bg=row_bg, fg=TEXT_PRIMARY,
+                     font=("Consolas", 9), anchor="w").grid(
+                row=row_idx, column=0, sticky="ew", padx=6)
+            sv = tk.BooleanVar()
+            ev = tk.BooleanVar()
+            ttk.Checkbutton(grid, variable=sv).grid(
+                row=row_idx, column=1, sticky="")
+            ttk.Checkbutton(grid, variable=ev).grid(
+                row=row_idx, column=2, sticky="")
+            grid.rowconfigure(row_idx, minsize=28)
             self._file_rows.append((fname, sv, ev))
 
     def _refresh_shape_fields(self):
@@ -650,6 +935,18 @@ class SnappyHexMeshTab(tk.Frame):
             w["radius"] = scalar("Radius:", 2)
 
     def _apply_sec1(self):
+        """
+        Commit the geometry selections and populate sections 2–4.
+
+        This is the "lock-in" step: it reads which files are ticked as
+        Surface or Edge, validates that no file is ticked as both, parses
+        zone names from each surface STL, stores the results in instance
+        variables, and then rebuilds the contents of the castellation,
+        snap, and layer sections to match the chosen geometry.
+
+        Sections 2–4 remain empty (showing a placeholder label) until
+        this method is called successfully.
+        """
         self._sec1_err.configure(text="")
         surf = [fn for fn, sv, ev in self._file_rows if sv.get()]
         edge = [fn for fn, sv, ev in self._file_rows if ev.get()]
@@ -716,6 +1013,30 @@ class SnappyHexMeshTab(tk.Frame):
                  wraplength=600).pack(pady=12)
 
     def _populate_sec2(self):
+        """
+        Rebuild the castellation & refinement section after geometry is applied.
+
+        Sub-sections and their OpenFOAM roles
+        --------------------------------------
+        Feature edge refinement  →  castellatedMeshControls/features[]
+            Refines cells along sharp surface edges (e.g. wing leading edge).
+            Level controls how many extra cell-halving steps are applied near
+            each extracted edge file (.eMesh).
+
+        Volume refinement  →  castellatedMeshControls/refinementRegions
+            Uniformly refines all cells *inside* a named region or shape.
+            Useful for wake regions or zones requiring a finer background grid.
+
+        Gap refinement  →  refinementRegions/<region>/gapLevel
+            Automatically detects and refines narrow gaps between surfaces.
+            The "min cells between surfaces" value sets when gap mode kicks in.
+
+        Surface refinement  →  castellatedMeshControls/refinementSurfaces
+            Refines cells at the STL surfaces themselves and assigns boundary
+            patch types (wall, patch, faceZone) to each surface or zone.
+            Multi-zone STLs get a global level plus per-zone overrides.
+            Single-zone STLs and shapes get a single level + type card.
+        """
         for w in self._sec2_body.winfo_children():
             w.destroy()
         self._edge_ref_vars.clear()
@@ -792,59 +1113,63 @@ class SnappyHexMeshTab(tk.Frame):
                 standalone.append(reg)
         standalone.extend(self._special_region_names)
 
+        # Multi-zone STL regions — one card per file, plus one nested sub-card
+        # per zone inside it.  Single-zone files are skipped here and rendered
+        # in the standalone loop below (prevents the duplicate-card bug).
         for ii, reg in enumerate(self._geometry_region_names):
             zone_names = self._region_zone_list[ii]
+            if len(zone_names) <= 1:
+                continue  # single-zone regions handled in the standalone loop below
             grp = self._sub_card(body, reg)
-
-            if len(zone_names) > 1:
-                rd = {"multi_zone": True, "zone_names": zone_names}
-                gl = tk.Frame(grp, bg=BG_CARD)
-                gl.pack(fill=tk.X)
-                gmin_v, gmax_v = tk.IntVar(value=0), tk.IntVar(value=1)
-                tk.Label(gl, text="Global min level:", bg=BG_CARD, fg=TEXT_MUTED,
+            rd = {"multi_zone": True, "zone_names": zone_names}
+            gl = tk.Frame(grp, bg=BG_CARD)
+            gl.pack(fill=tk.X)
+            gmin_v, gmax_v = tk.IntVar(value=0), tk.IntVar(value=1)
+            tk.Label(gl, text="Global min level:", bg=BG_CARD, fg=TEXT_MUTED,
+                     font=("Segoe UI", 9)).pack(side=tk.LEFT)
+            ttk.Spinbox(gl, from_=0, to=20, textvariable=gmin_v, width=5)\
+                .pack(side=tk.LEFT, padx=2)
+            tk.Label(gl, text="  Global max level:", bg=BG_CARD, fg=TEXT_MUTED,
+                     font=("Segoe UI", 9)).pack(side=tk.LEFT)
+            ttk.Spinbox(gl, from_=0, to=20, textvariable=gmax_v, width=5)\
+                .pack(side=tk.LEFT, padx=2)
+            rd["global_min"], rd["global_max"] = gmin_v, gmax_v
+            rd["zones"] = {}
+            for zn in zone_names:
+                zg = self._sub_card(grp, f"Zone: {zn}")
+                zmin_v, zmax_v = tk.IntVar(value=0), tk.IntVar(value=1)
+                bt_v  = tk.StringVar(value="wall")
+                cz_v  = tk.BooleanVar(value=False)
+                czn_v = tk.StringVar(value="")
+                zr = tk.Frame(zg, bg=BG_CARD)
+                zr.pack(fill=tk.X)
+                tk.Label(zr, text="Min:", bg=BG_CARD, fg=TEXT_MUTED,
                          font=("Segoe UI", 9)).pack(side=tk.LEFT)
-                ttk.Spinbox(gl, from_=0, to=20, textvariable=gmin_v, width=5)\
+                ttk.Spinbox(zr, from_=0, to=20, textvariable=zmin_v, width=5)\
                     .pack(side=tk.LEFT, padx=2)
-                tk.Label(gl, text="  Global max level:", bg=BG_CARD, fg=TEXT_MUTED,
+                tk.Label(zr, text="  Max:", bg=BG_CARD, fg=TEXT_MUTED,
                          font=("Segoe UI", 9)).pack(side=tk.LEFT)
-                ttk.Spinbox(gl, from_=0, to=20, textvariable=gmax_v, width=5)\
+                ttk.Spinbox(zr, from_=0, to=20, textvariable=zmax_v, width=5)\
                     .pack(side=tk.LEFT, padx=2)
-                rd["global_min"], rd["global_max"] = gmin_v, gmax_v
-                rd["zones"] = {}
-                for zn in zone_names:
-                    zg = self._sub_card(grp, f"Zone: {zn}")
-                    zmin_v, zmax_v = tk.IntVar(value=0), tk.IntVar(value=1)
-                    bt_v  = tk.StringVar(value="wall")
-                    cz_v  = tk.BooleanVar(value=False)
-                    czn_v = tk.StringVar(value="")
-                    zr = tk.Frame(zg, bg=BG_CARD)
-                    zr.pack(fill=tk.X)
-                    tk.Label(zr, text="Min:", bg=BG_CARD, fg=TEXT_MUTED,
-                             font=("Segoe UI", 9)).pack(side=tk.LEFT)
-                    ttk.Spinbox(zr, from_=0, to=20, textvariable=zmin_v, width=5)\
-                        .pack(side=tk.LEFT, padx=2)
-                    tk.Label(zr, text="  Max:", bg=BG_CARD, fg=TEXT_MUTED,
-                             font=("Segoe UI", 9)).pack(side=tk.LEFT)
-                    ttk.Spinbox(zr, from_=0, to=20, textvariable=zmax_v, width=5)\
-                        .pack(side=tk.LEFT, padx=2)
-                    tk.Label(zr, text="  Type:", bg=BG_CARD, fg=TEXT_MUTED,
-                             font=("Segoe UI", 9)).pack(side=tk.LEFT)
-                    ttk.Combobox(zr, textvariable=bt_v, values=BOUNDARY_TYPES,
-                                 state="readonly", width=10).pack(side=tk.LEFT, padx=2)
-                    czr = tk.Frame(zg, bg=BG_CARD)
-                    czr.pack(fill=tk.X)
-                    ttk.Checkbutton(czr, text="Enclose cellZone?",
-                                    variable=cz_v).pack(side=tk.LEFT)
-                    ttk.Entry(czr, textvariable=czn_v, width=20).pack(side=tk.LEFT, padx=4)
-                    tk.Label(czr, text="(cellZone name)", fg=TEXT_MUTED,
-                             bg=BG_CARD, font=("Segoe UI", 7)).pack(side=tk.LEFT)
-                    rd["zones"][zn] = {
-                        "min": zmin_v, "max": zmax_v,
-                        "btype": bt_v, "cell_zone": cz_v, "cz_name": czn_v,
-                    }
-                self._surf_ref_data[reg] = rd
-            # single-zone handled in the standalone loop below
+                tk.Label(zr, text="  Type:", bg=BG_CARD, fg=TEXT_MUTED,
+                         font=("Segoe UI", 9)).pack(side=tk.LEFT)
+                ttk.Combobox(zr, textvariable=bt_v, values=BOUNDARY_TYPES,
+                             state="readonly", width=10).pack(side=tk.LEFT, padx=2)
+                czr = tk.Frame(zg, bg=BG_CARD)
+                czr.pack(fill=tk.X)
+                ttk.Checkbutton(czr, text="Enclose cellZone?",
+                                variable=cz_v).pack(side=tk.LEFT)
+                ttk.Entry(czr, textvariable=czn_v, width=20).pack(side=tk.LEFT, padx=4)
+                tk.Label(czr, text="(cellZone name)", fg=TEXT_MUTED,
+                         bg=BG_CARD, font=("Segoe UI", 7)).pack(side=tk.LEFT)
+                rd["zones"][zn] = {
+                    "min": zmin_v, "max": zmax_v,
+                    "btype": bt_v, "cell_zone": cz_v, "cz_name": czn_v,
+                }
+            self._surf_ref_data[reg] = rd
 
+        # Single-zone STL regions + analytic shapes — one card each.
+        # The guard skips any region already written by the multi-zone loop above.
         for reg in standalone:
             if reg in self._surf_ref_data:
                 continue
@@ -1026,6 +1351,8 @@ class SnappyHexMeshTab(tk.Frame):
             self._layer_details.pack(fill=tk.X)
         else:
             self._layer_details.pack_forget()
+        # Fix 3: refresh dict gen banner when layer state changes
+        self._update_dict_gen_banner()
 
     def _apply_sec4(self):
         self._add_layers = (
@@ -1039,9 +1366,218 @@ class SnappyHexMeshTab(tk.Frame):
         tk.Label(sec5,
                  text="Generates system/snappyHexMeshDict (and fvSchemes, fvSolution if layers enabled).",
                  bg=BG_CARD, fg=TEXT_MUTED, font=("Segoe UI", 9)).pack(anchor="w")
-        self._gen_btn = ttk.Button(sec5, text="Generate snappyHexMeshDict",
+
+        # Fix 1A: time directories label
+        self._time_dirs_label = tk.Label(
+            sec5, text="No time directories found.",
+            bg=BG_CARD, fg=TEXT_MUTED, font=("Segoe UI", 9))
+        self._time_dirs_label.pack(anchor="w", pady=(6, 0))
+
+        tk.Frame(sec5, bg=BORDER, height=1).pack(fill=tk.X, pady=(10, 0))
+
+        # Fix 3: dict generation overwrite banner + button
+        self._dict_gen_banner = tk.Label(
+            sec5, text="", bg=BG_CARD, fg="#7A5C00",
+            font=("Segoe UI", 9), wraplength=560, anchor="w", justify="left")
+        self._dict_gen_banner.pack(fill=tk.X, pady=(8, 2))
+
+        dict_btn_row = tk.Frame(sec5, bg=BG_CARD)
+        dict_btn_row.pack(fill=tk.X)
+        self._gen_btn = ttk.Button(dict_btn_row, text="Generate snappyHexMeshDict",
                                     style="P.TButton", command=self._generate)
-        self._gen_btn.pack(side=tk.RIGHT, pady=(12, 0))
+        self._gen_btn.pack(side=tk.RIGHT)
+
+        tk.Frame(sec5, bg=BORDER, height=1).pack(fill=tk.X, pady=(10, 0))
+
+        # Fix 3: snappy binary overwrite banner + button
+        self._snappy_run_banner = tk.Label(
+            sec5, text="", bg=BG_CARD, fg="#7A5C00",
+            font=("Segoe UI", 9), wraplength=560, anchor="w", justify="left")
+        self._snappy_run_banner.pack(fill=tk.X, pady=(8, 2))
+
+        run_btn_row = tk.Frame(sec5, bg=BG_CARD)
+        run_btn_row.pack(fill=tk.X, pady=(0, 4))
+        self._run_snappy_btn = ttk.Button(run_btn_row, text="Run snappyHexMesh",
+                                           style="S.TButton", command=self._run_snappy)
+        self._run_snappy_btn.pack(side=tk.RIGHT)
+
+    # ------------------------------------------------- section 5 helpers
+
+    def _scan_time_dirs(self):
+        """Return sorted list of integer-named subdirectory names in cwd."""
+        cwd = self._cwd.get()
+        try:
+            return sorted(
+                (e for e in os.listdir(cwd)
+                 if e.isdigit() and os.path.isdir(os.path.join(cwd, e))),
+                key=int)
+        except Exception:
+            return []
+
+    def _update_time_dirs_label(self):
+        if not hasattr(self, "_time_dirs_label"):
+            return
+        dirs = self._scan_time_dirs()
+        if dirs:
+            self._time_dirs_label.configure(
+                text="Existing time dirs: " + "  ".join(f"/{d}" for d in dirs))
+        else:
+            self._time_dirs_label.configure(text="No time directories found.")
+
+    def _on_cwd_changed(self, *_args):
+        self._update_time_dirs_label()
+        self._update_dict_gen_banner()
+        self._update_snappy_run_banner()
+
+    def _update_dict_gen_banner(self, *_args):
+        """Refresh overwrite warning banner for dict generation."""
+        if not hasattr(self, "_dict_gen_banner"):
+            return
+        cwd = self._cwd.get()
+        will_overwrite = []
+        if os.path.isfile(os.path.join(cwd, "system", "snappyHexMeshDict")):
+            will_overwrite.append("system/snappyHexMeshDict")
+        add_layers = hasattr(self, "_add_layers_var") and self._add_layers_var.get()
+        if add_layers:
+            for fname in ("fvSchemes", "fvSolution"):
+                if os.path.isfile(os.path.join(cwd, "system", fname)):
+                    will_overwrite.append(f"system/{fname}")
+        if will_overwrite:
+            self._dict_gen_banner.configure(
+                text="Will overwrite: " + ",  ".join(will_overwrite),
+                bg="#FFF8E1", fg="#7A5C00")
+        else:
+            self._dict_gen_banner.configure(text="", bg=BG_CARD)
+
+    def _update_snappy_run_banner(self, *_args):
+        """Refresh overwrite warning banner for snappyHexMesh binary run."""
+        if not hasattr(self, "_snappy_run_banner"):
+            return
+        cwd = self._cwd.get()
+        will_overwrite = []
+        for d in self._scan_time_dirs():
+            will_overwrite.append(f"/{d}/  (time directory)")
+        try:
+            for f in os.listdir(cwd):
+                if f.endswith(".foam"):
+                    will_overwrite.append(f"{f}  (.foam file)")
+        except Exception:
+            pass
+        if will_overwrite:
+            self._snappy_run_banner.configure(
+                text="Will overwrite: " + ",  ".join(will_overwrite),
+                bg="#FFF8E1", fg="#7A5C00")
+        else:
+            self._snappy_run_banner.configure(text="", bg=BG_CARD)
+
+    def _run_snappy(self):
+        """
+        Run the snappyHexMesh binary and update the ParaView .foam file on success.
+
+        Prerequisites: system/snappyHexMeshDict must already exist (generate it
+        with "Generate snappyHexMeshDict" first).
+
+        Output time directories
+        -----------------------
+        snappyHexMesh writes one numbered subdirectory per active phase:
+          /1  — castellated mesh
+          /2  — snapped mesh
+          /3  — mesh with layers (only when addLayers is true)
+        The _time_dirs_label in Section 5 is refreshed after the run so the
+        user can see which directories were created.
+
+        On success the old .foam file (if any) is deleted and a fresh
+        <case_name>.foam file is created so ParaView sees the updated mesh.
+        Both self._gen_btn and self._run_snappy_btn are disabled during the
+        run to prevent concurrent operations.
+        """
+        cwd = self._cwd.get()
+        snappy_dict = os.path.join(cwd, "system", "snappyHexMeshDict")
+
+        if not os.path.isfile(snappy_dict):
+            messagebox.showerror(
+                "Missing snappyHexMeshDict",
+                "system/snappyHexMeshDict not found.\n"
+                "Generate the dict first.")
+            return
+
+        # Fix 3: overwrite confirmation popup for snappy run
+        will_overwrite = []
+        for d in self._scan_time_dirs():
+            will_overwrite.append(f"/{d}/  (time directory)")
+        try:
+            for f in os.listdir(cwd):
+                if f.endswith(".foam"):
+                    will_overwrite.append(f"{f}  (.foam file)")
+        except Exception:
+            pass
+
+        if will_overwrite:
+            msg = ("The following will be overwritten:\n\n"
+                   + "\n".join(f"  • {item}" for item in will_overwrite)
+                   + "\n\nThese will be overwritten. Continue?")
+            if not messagebox.askyesno("Overwrite existing files?", msg):
+                return
+
+        self._run_snappy_btn.configure(state=tk.DISABLED)
+        self._gen_btn.configure(state=tk.DISABLED)
+        self._status.set(STATUS_RUNNING)
+        self._log.write("\n[snappyHexMesh] Starting...\n", "info")
+
+        OF_BASHRC = "/usr/lib/openfoam/openfoam2506/etc/bashrc"
+        bash_cmd = f"source {OF_BASHRC} && snappyHexMesh"
+        cmd = ["bash", "-c", bash_cmd]
+
+        def worker():
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, cwd=cwd)
+                for line in proc.stdout:
+                    tag = "error" if any(
+                        w in line.lower() for w in ("error", "failed")) else ""
+                    self._log.write(line, tag)
+                proc.wait()
+                if proc.returncode == 0:
+                    # Fix 2: update .foam file
+                    case_name = os.path.basename(cwd)
+                    try:
+                        for f in os.listdir(cwd):
+                            if f.endswith(".foam"):
+                                try:
+                                    os.remove(os.path.join(cwd, f))
+                                except Exception:
+                                    pass
+                        foam_path = os.path.join(cwd, f"{case_name}.foam")
+                        open(foam_path, "w").close()
+                        self._log.write(
+                            f"[snappyHexMesh] .foam file updated: {foam_path}\n", "info")
+                    except Exception as fe:
+                        self._log.write(
+                            f"[snappyHexMesh] Warning: could not update .foam file: {fe}\n", "warn")
+
+                    # Fix 1A: log and refresh time dirs
+                    new_dirs = self._scan_time_dirs()
+                    for d in new_dirs:
+                        self._log.write(f"[snappyHexMesh] Time dir found: /{d}\n", "info")
+                    self.after(0, self._update_time_dirs_label)
+                    self.after(0, self._update_snappy_run_banner)
+
+                    self._log.write("[snappyHexMesh] Done.\n", "info")
+                    self.after(0, lambda: self._status.set(STATUS_DONE_S))
+                else:
+                    self._log.write(
+                        f"[snappyHexMesh] Exited with code {proc.returncode}\n", "error")
+                    self.after(0, lambda: self._status.set(STATUS_ERROR))
+                    self.after(0, self._update_time_dirs_label)
+            except Exception as exc:
+                self._log.write(f"[snappyHexMesh] Exception: {exc}\n", "error")
+                self.after(0, lambda: self._status.set(STATUS_ERROR))
+            finally:
+                self.after(0, lambda: self._run_snappy_btn.configure(state=tk.NORMAL))
+                self.after(0, lambda: self._gen_btn.configure(state=tk.NORMAL))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # --------------------------------------------------------- generation logic
 
@@ -1056,9 +1592,22 @@ class SnappyHexMeshTab(tk.Frame):
                 "system/controlDict not found.\n"
                 "Run this tool from an OpenFOAM case directory.")
             return
+
+        # Fix 3: overwrite confirmation popup for dict generation
+        add_layers = self._add_layers_var.get() if hasattr(self, "_add_layers_var") else False
+        will_overwrite = []
         if os.path.isfile(snappy_dict):
-            if not messagebox.askyesno("Overwrite?",
-                "system/snappyHexMeshDict already exists.\nOverwrite it?"):
+            will_overwrite.append("system/snappyHexMeshDict")
+        if add_layers:
+            for fname in ("fvSchemes", "fvSolution"):
+                if os.path.isfile(os.path.join(sys_dir, fname)):
+                    will_overwrite.append(f"system/{fname}")
+
+        if will_overwrite:
+            msg = ("The following will be overwritten:\n\n"
+                   + "\n".join(f"  • {item}" for item in will_overwrite)
+                   + "\n\nThese will be overwritten. Continue?")
+            if not messagebox.askyesno("Overwrite existing files?", msg):
                 return
 
         # Validate locationInMesh floats
@@ -1082,6 +1631,7 @@ class SnappyHexMeshTab(tk.Frame):
         self._layer_surfaces = self._compute_layer_surfaces()
 
         self._gen_btn.configure(state=tk.DISABLED)
+        self._run_snappy_btn.configure(state=tk.DISABLED)
         self._status.set(STATUS_RUNNING)
         self._log.write("\n[snappyHexMeshDict] Generating...\n", "info")
 
@@ -1090,16 +1640,32 @@ class SnappyHexMeshTab(tk.Frame):
                 self._do_generate(sys_dir, snappy_dict, cwd)
                 self._log.write("[snappyHexMeshDict] Done.\n", "info")
                 self.after(0, lambda: self._status.set(STATUS_DONE_S))
+                self.after(0, self._update_dict_gen_banner)
             except Exception as exc:
                 self._log.write(f"[snappyHexMeshDict] Error: {exc}\n", "error")
                 self.after(0, lambda: self._status.set(STATUS_ERROR))
             finally:
                 self.after(0, lambda: self._gen_btn.configure(state=tk.NORMAL))
+                self.after(0, lambda: self._run_snappy_btn.configure(state=tk.NORMAL))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _fcmd(self, cmd_str, cwd):
-        """Run a foamDictionary (or any shell) command and stream to log."""
+        """
+        Run a single shell command inside WSL and stream output to the log.
+
+        Every OpenFOAM command must be wrapped in:
+            bash -c "source <OF_BASHRC> && <command>"
+        because the OpenFOAM binaries (foamDictionary, snappyHexMesh, …) are
+        only on PATH after the bashrc is sourced.  WSL does not inherit a
+        previously sourced environment from the parent terminal session, so
+        each subprocess call must source it explicitly.
+
+        Stdout is written to the log as plain text; stderr is written with
+        the "error" tag only when the command returns a non-zero exit code
+        (foamDictionary often writes informational messages to stderr that
+        are not actual errors).
+        """
         self._log.write(f"  $ {cmd_str}\n", "cmd")
         try:
             bash_cmd = f"source /usr/lib/openfoam/openfoam2506/etc/bashrc && {cmd_str}"
@@ -1113,9 +1679,32 @@ class SnappyHexMeshTab(tk.Frame):
             self._log.write(f"  Exception: {exc}\n", "error")
 
     def _do_generate(self, sys_dir, snappy_dict, cwd):
+        """
+        Write system/snappyHexMeshDict (and optionally fvSchemes/fvSolution).
+
+        Two-phase write strategy
+        ------------------------
+        Phase 1 — direct file write:
+            The FoamFile header block is written as a raw string because
+            foamDictionary cannot create a file from scratch; it needs an
+            existing file with a valid FoamFile header to operate on.
+
+        Phase 2 — foamDictionary subprocess calls (via self._fcmd / C()):
+            All dictionary entries are added incrementally with
+            foamDictionary -entry <key> -add <value>.  This is robust
+            against key ordering and avoids hand-rolling the full OF
+            dictionary syntax for nested structures.
+
+        Exception: the features{} list-of-dict block
+            foamDictionary cannot write a list of anonymous sub-dicts
+            (the ( { file "x.eMesh"; level 1; } ) syntax).  This block is
+            therefore injected by a direct file read-modify-write step that
+            inserts the feature entries immediately before the closing brace
+            of castellatedMeshControls.
+        """
         C = lambda s: self._fcmd(s, cwd)   # noqa: E731
 
-        # -- Initial file ------------------------------------------------------
+        # -- Initial file — write the FoamFile header so foamDictionary can open it --
         header = (
             "/*--------------------------------*- C++ -*----------------------------------*\\\n"
             "| =========                 |                                                 |\n"
@@ -1188,7 +1777,10 @@ class SnappyHexMeshTab(tk.Frame):
         C("foamDictionary system/snappyHexMeshDict -entry castellatedMeshControls/minRefinementCells -add 10")
         C("foamDictionary system/snappyHexMeshDict -entry castellatedMeshControls/maxLoadUnbalance -add 0.1")
 
-        # -- Features (edge refinement) -- injected by file edit ---------------
+        # -- Features (edge refinement) — injected by direct file edit ----------
+        # foamDictionary cannot write a list-of-dict block, so we read the
+        # partially-written file, locate the castellatedMeshControls closing
+        # brace, and insert the features( … ); block just before it.
         with open(snappy_dict, "r") as fh:
             lines = fh.readlines()
         modified, inside = [], False
@@ -1438,6 +2030,23 @@ solvers
 # ---------------------------------------------------------------------------
 
 class App(tk.Tk):
+    """
+    Root application window — assembles the two tabs, log panel, and status bar.
+
+    Layout (top → bottom)
+    ---------------------
+    1. Header bar (52 px black) — app title + tab-switch buttons + ParaView button.
+    2. PanedWindow (vertical sash, resizable):
+         - Top pane: content_frame holding Tab1 and Tab2 stacked via place().
+         - Bottom pane: LogPanel (shared output console).
+    3. StatusBar (30 px black) — pinned to the very bottom.
+
+    Tab switching is done with tkraise(): both tab frames fill the same
+    content_frame at relwidth=1/relheight=1; raising one brings it to the
+    front without destroying the other, so form state is preserved when the
+    user switches tabs.
+    """
+
     def __init__(self):
         super().__init__()
         self.title("OpenFOAM Mesh Utilities")
@@ -1448,6 +2057,19 @@ class App(tk.Tk):
         self._build()
 
     def _apply_styles(self):
+        """
+        Configure ttk theme and define the three custom button styles.
+
+        Uses "clam" as the base theme because it exposes the most style
+        map hooks for border and background overrides.
+
+        Button variants
+        ---------------
+        P.TButton  — Primary (red fill, white text): main action buttons.
+        S.TButton  — Secondary (white fill, red border/text): auxiliary actions.
+        D.TButton  — Danger (white fill, dark-red text): destructive actions
+                     like "Clear log".
+        """
         style = ttk.Style()
         style.theme_use("clam")
 
@@ -1557,6 +2179,16 @@ class App(tk.Tk):
         self._tab1.tkraise()
 
     def _open_paraview(self):
+        """
+        Launch ParaView on the Windows desktop, pointing it at the case .foam file.
+
+        The .foam file lives inside the WSL filesystem (e.g.
+        /mnt/c/OpenFOAM/03_mesh_session/03_mesh_session.foam).  ParaView
+        runs natively on Windows, so it needs a Windows-format path.
+        wslpath -w converts the WSL path to a Windows UNC path
+        (e.g. \\\\wsl.localhost\\Ubuntu\\mnt\\c\\…) which ParaView accepts
+        as a file argument.
+        """
         cwd = os.getcwd()
         foam_files = sorted(f for f in os.listdir(cwd) if f.endswith(".foam"))
         if not foam_files:
@@ -1593,6 +2225,13 @@ class App(tk.Tk):
             self._log.write(f"[ParaView] Launch error: {exc}\n", "error")
 
     def _switch_tab(self, idx):
+        """
+        Bring tab *idx* (0=Background Mesh, 1=SnappyHexMesh) to the front.
+
+        tkraise() lifts the selected frame to the top of the stacking order
+        without destroying or re-creating the other tab's widgets, so all
+        form state is preserved across switches.
+        """
         [self._tab1, self._tab2][idx].tkraise()
         for i, btn in enumerate(self._tab_btns):
             if i == idx:

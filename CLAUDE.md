@@ -49,8 +49,8 @@ The project has two layers: Python tooling (`01_utilities/`) and an example Open
 
 **`openfoam_ui.py`** — Tkinter GUI wrapping the two CLI tools. Key classes:
 - `App` (main window, inherits `tk.Tk`) contains two tabs
-- `BackgroundMeshTab` — collects STL file + dx/dy/dz, spawns `generateBackgroundMesh.py` as a subprocess
-- `SnappyHexMeshTab` — multi-section scrollable form that calls `foamDictionary` directly to write mesh refinement config
+- `BackgroundMeshTab` — collects STL file + dx/dy/dz, spawns `generateBackgroundMesh.py` as a subprocess; auto-detects case root from STL path
+- `SnappyHexMeshTab` — multi-section scrollable form that calls `foamDictionary` directly to write mesh refinement config; Section 5 has both a "Generate snappyHexMeshDict" button and a "Run snappyHexMesh" button that streams binary output to the log; existing time directories (/1, /2, …) are shown live
 - `LogPanel` / `StatusBar` — real-time log streaming from subprocesses; `queue.Queue` is used to push lines from a worker thread to the Tk main loop
 
 **`generateBackgroundMesh.py`** — Standalone CLI:

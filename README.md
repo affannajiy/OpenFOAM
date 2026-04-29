@@ -26,7 +26,7 @@ python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
   - Section 2: castellation & refinement — edge, surface, volumetric, and gap refinement levels; nCellsBetweenLevels; location in mesh
   - Section 3: snap controls — implicit or explicit feature snapping
   - Section 4: layer addition — per-patch nSurfaceLayers
-  - Section 5: Generate button; writes `system/snappyHexMeshDict` (and `fvSchemes`/`fvSolution` when layers are enabled); mesh quality parameters are hardcoded defaults
+  - Section 5: two-step action — "Generate snappyHexMeshDict" writes `system/snappyHexMeshDict` (and `fvSchemes`/`fvSolution` when layers are enabled); "Run snappyHexMesh" then calls the binary and streams output to the log; existing time directories are shown live; mesh quality parameters are hardcoded defaults
 
 Requires `python3-tk` (`sudo apt-get install python3-tk`). Launch from an OpenFOAM case directory with the environment already sourced.
 
@@ -72,7 +72,7 @@ surfaceFeatureExtract
 # Use Tab 2 in openfoam_ui.py, or:
 python3 generateSnappyHexMeshDict.py
 
-# 4. Run snappyHexMesh
+# 4. Run snappyHexMesh (GUI button in Section 5, or CLI)
 snappyHexMesh -overwrite
 ```
 

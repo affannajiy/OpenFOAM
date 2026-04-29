@@ -1,0 +1,132 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2506                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+FoamFile
+{
+    version         2;
+    format          ascii;
+    class           dictionary;
+    object          snappyHexMeshDict;
+}
+
+castellatedMesh true;
+
+snap            true;
+
+addLayers       false;
+
+geometry
+{
+    geom.stl
+    {
+        type            triSurfaceMesh;
+        name            geom;
+    }
+    inner-cylinder.stl
+    {
+        type            triSurfaceMesh;
+        name            inner-cylinder;
+    }
+}
+
+castellatedMeshControls
+{
+    maxLocalCells   100000000;
+    maxGlobalCells  300000000;
+    minRefinementCells 10;
+    maxLoadUnbalance 0.1;
+    features        ( );
+    refinementRegions
+    {
+        geom
+        {
+            mode            inside;
+            levels          ( ( 1 1 ) );
+            gapLevel        ( 3 0 3 );
+            gapMode         mixed;
+        }
+        inner-cylinder
+        {
+            mode            inside;
+            levels          ( ( 1 1 ) );
+            gapLevel        ( 3 0 3 );
+            gapMode         mixed;
+        }
+    }
+    refinementSurfaces
+    {
+        geom
+        {
+            level           ( 0 1 );
+            patchInfo
+            {
+                type            wall;
+                inGroups        ( walls );
+            }
+        }
+        inner-cylinder
+        {
+            level           ( 0 1 );
+            patchInfo
+            {
+                type            wall;
+                inGroups        ( walls );
+            }
+        }
+    }
+    resolveFeatureAngle 30;
+    nCellsBetweenLevels 2;
+    locationInMesh  ( 0 0 0 );
+    allowFreeStandingZoneFaces true;
+}
+
+snapControls
+{
+    nSmoothPatch    3;
+    nSmoothInternal 5;
+    tolerance       2;
+    nSolveIter      30;
+    nRelaxIter      5;
+    nFeatureSnapIter 10;
+    implicitFeatureSnap true;
+    explicitFeatureSnap false;
+    multiRegionFeatureSnap false;
+}
+
+addLayersControls
+{
+}
+
+meshQualityControls
+{
+    maxNonOrtho     65;
+    maxBoundarySkewness 20;
+    maxInternalSkewness 4;
+    maxConcave      80;
+    minFlatness     0.5;
+    minVol          1e-13;
+    minTetQuality   -1e-30;
+    minArea         -1;
+    minTwist        0.02;
+    minDeterminant  0.001;
+    minFaceWeight   0.05;
+    minVolRatio     0.01;
+    minTriangleTwist -1;
+    minEdgeLength   -1;
+    relaxed
+    {
+        maxNonOrtho     70;
+    }
+    nSmoothScale    4;
+    errorReduction  0.75;
+}
+
+mergeTolerance  1e-06;
+
+
+// ************************************************************************* //
