@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SnappyHexMesh Geometry Renamer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+    margin: 0;
+    padding: 16px;
+    background: #f0f2f5;
+    color: #222;
+  }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .subtitle { color: #666; font-size: 12px; margin: 0 0 14px; }
+
+  /* ── Toolbar ── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    background: white;
+    padding: 12px 14px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    margin-bottom: 12px;
+  }
+  input[type="file"] { display: none; }
+
+  /* ── Buttons ── */
+  .btn {
+    padding: 6px 13px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .btn-primary   { background: #0066cc; color: white; }
+  .btn-primary:hover   { background: #0052a3; }
+  .btn-success   { background: #28a745; color: white; }
+  .btn-success:hover   { background: #1e7e34; }
+  .btn-danger    { background: #dc3545; color: white; }
+  .btn-danger:hover    { background: #b02a37; }
+
+  /* ── Stat bar ── */
+  .stat-bar {
+    display: none;
+    gap: 10px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #555;
+    flex-wrap: wrap;
+  }
+  .stat-bar span              { background: #e8f4f8; padding: 2px 10px; border-radius: 12px; }
+  .stat-bar span.warn         { background: #fff3cd; }
+
+  /* ── Table container ── */
+  .table-wrap {
+    overflow-x: auto;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    margin-bottom: 14px;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  .empty-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: #999;
+    font-size: 14px;
+  }
+
+  /* ── Table ── */
+  table { border-collapse: collapse; width: 100%; min-width: 960px; }
+
+  thead th {
+    background: #2c3e50;
+    color: white;
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 11px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  tbody tr td { padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
+  tbody tr:hover:not(.row-skip) td { background: #f0f7ff; }
+  tbody tr:last-child td { border-bottom: none; }
+  tr.row-skip td { background: #f5f5f5; color: #bbb; }
+
+  td.col-num      { color: #aaa; font-size: 11px; width: 28px; text-align: center; }
+  td.col-filename { font-family: monospace; font-size: 12px; }
+  td.col-check    { text-align: center; width: 60px; }
+  td.col-preview  { font-family: monospace; font-size: 11px; word-break: break-all; min-width: 220px; }
+  td.col-preview.p-same    { color: #aaa; font-style: italic; }
+  td.col-preview.p-encoded { color: #0066cc; }
+  td.col-preview.p-warn    { color: #cc7700; font-style: italic; }
+
+  input[type="checkbox"] { cursor: pointer; width: 15px; height: 15px; }
+
+  select, input[type="number"] {
+    padding: 3px 6px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+  input[type="number"] { width: 54px; }
+
+  select:disabled,
+  input[type="number"]:disabled,
+  input[type="checkbox"]:disabled {
+    background: #f0f0f0;
+    color: #bbb;
+    border-color: #e0e0e0;
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* ── Commands panel ── */
+  .cmd-panel {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    padding: 14px;
+  }
+  .cmd-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .cmd-header h3 { margin: 0; font-size: 14px; }
+  .copy-notice { color: #28a745; font-size: 12px; display: none; font-weight: 600; }
+
+  textarea#cmdOutput {
+    width: 100%;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    resize: vertical;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    min-height: 140px;
+  }
+</style>
+</head>
+<body>
+
+<h1>🗂 SnappyHexMesh Geometry Renamer</h1>
+<p class="subtitle">Assign encoding prefixes to geometry files for use with <code>setup_snappy.py</code></p>
+
+<!-- ── Toolbar ─────────────────────────────────────────────── -->
+<div class="toolbar">
+  <button class="btn btn-primary" onclick="document.getElementById('folderPicker').click()">
+    📁 Browse Folder
+  </button>
+  <input type="file" id="folderPicker" webkitdirectory multiple>
+  <button class="btn btn-danger" onclick="clearTable()">🗑 Clear</button>
+</div>
+
+<!-- ── Table ────────────────────────────────────────────────── -->
+<div class="table-wrap">
+  <div class="empty-state" id="emptyState">
+    📂 Click <strong>Browse Folder</strong> and select the folder containing your STL files
+  </div>
+  <div class="stat-bar" id="statBar"></div>
+  <table id="mainTable" style="display:none">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Filename</th>
+        <th title="Uncheck to skip this file entirely">Encode</th>
+        <th title="Derive refinement levels automatically from geometry (AUTO_ prefix)">Auto Refine</th>
+        <th>Surface Type</th>
+        <th title="Include a cell zone alongside the face zone (only for faceZone type)">Cell Zone</th>
+        <th title="Minimum surface refinement level (disabled when Auto is on)">Surf Min</th>
+        <th title="Maximum surface refinement level (disabled when Auto is on)">Surf Max</th>
+        <th title="Direction of volume refinement">Volume Refinement</th>
+        <th title="Volume refinement level (disabled when Auto is on)">Vol. Level</th>
+        <th>Encoded Name Preview</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
+
+<!-- ── Command output ───────────────────────────────────────── -->
+<div class="cmd-panel">
+  <div class="cmd-header">
+    <h3>Rename Commands</h3>
+    <button class="btn btn-success" onclick="generateAndCopy()">📋 Copy to Clipboard</button>
+    <span class="copy-notice" id="copyNotice">✓ Copied!</span>
+    <span style="font-size:12px; color:#888;">
+      Paste and run in the directory containing the STL files
+    </span>
+  </div>
+  <textarea id="cmdOutput" readonly
+            placeholder="Configure files above, then click 'Copy to Clipboard'..."></textarea>
+</div>
+
+<script>
+'use strict';
+
+const GEO_EXTS = new Set(['.stl', '.obj', '.stlb']);
+let rows = [];
+
+// ── Decode existing encoded filename ─────────────────────────
+// Returns parsed settings + baseName if filename is already encoded, else null.
+function parseEncodedFilename(filename) {
+  const lastDot = filename.lastIndexOf('.');
+  const ext = lastDot >= 0 ? filename.slice(lastDot) : '';
+  let rem = lastDot >= 0 ? filename.slice(0, lastDot) : filename;
+
+  let auto = false, detected = false;
+  let surfType = 'none', cellZone = true;
+  let surfMin = 2, surfMax = 4;
+  let volDir = 'none', volLevel = 3;
+
+  if (rem.startsWith('AUTO_')) {
+    auto = true; detected = true;
+    rem = rem.slice(5);
+  }
+
+  // SURF block — note: check FZ_CZ before FZ to avoid partial match
+  if (auto) {
+    const m = rem.match(/^SURF_(FZ_CZ|FZ|BND)_/);
+    if (m) {
+      detected = true;
+      surfType = m[1] === 'BND' ? 'BND' : 'FZ';
+      cellZone = m[1] === 'FZ_CZ';
+      rem = rem.slice(m[0].length);
+    }
+  } else {
+    const m = rem.match(/^SURF_(FZ_CZ|FZ|BND)_L(\d+)_L(\d+)_/);
+    if (m) {
+      detected = true;
+      surfType = m[1] === 'BND' ? 'BND' : 'FZ';
+      cellZone = m[1] === 'FZ_CZ';
+      surfMin  = parseInt(m[2]);
+      surfMax  = parseInt(m[3]);
+      rem = rem.slice(m[0].length);
+    }
+  }
+
+  // VOL block
+  if (auto) {
+    const m = rem.match(/^VOL_(IN|OUT)_/);
+    if (m) { detected = true; volDir = m[1]; rem = rem.slice(m[0].length); }
+  } else {
+    const m = rem.match(/^VOL_(IN|OUT)_L(\d+)_/);
+    if (m) {
+      detected = true;
+      volDir   = m[1];
+      volLevel = parseInt(m[2]);
+      rem = rem.slice(m[0].length);
+    }
+  }
+
+  if (!detected) return null;
+  return { auto, surfType, cellZone, surfMin, surfMax, volDir, volLevel, baseName: rem + ext };
+}
+
+// ── Row factory ──────────────────────────────────────────────
+function makeRow(filename) {
+  const p = parseEncodedFilename(filename);
+  if (p) {
+    // File is already encoded — restore its settings, use baseName for re-encoding
+    return {
+      filename,
+      baseName:    p.baseName,
+      encode:      true,
+      auto:        p.auto,
+      surfType:    p.surfType,
+      cellZone:    p.cellZone,
+      surfMin:     p.surfMin,
+      surfMax:     p.surfMax,
+      volDir:      p.volDir,
+      volLevel:    p.volLevel,
+      preEncoded:  true,
+    };
+  }
+  return {
+    filename,
+    baseName:   filename,
+    encode:     true,
+    auto:       true,
+    surfType:   'FZ',    // none | BND | FZ
+    cellZone:   true,    // only meaningful when surfType === 'FZ'
+    surfMin:    2,
+    surfMax:    4,
+    volDir:     'IN',    // none | IN | OUT
+    volLevel:   3,
+    preEncoded: false,
+  };
+}
+
+function isGeoFile(name) {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 && GEO_EXTS.has(name.slice(dot).toLowerCase());
+}
+
+// ── File loading ─────────────────────────────────────────────
+document.getElementById('folderPicker').addEventListener('change', function () {
+  const files = Array.from(this.files).filter(f => isGeoFile(f.name));
+  if (!files.length) { this.value = ''; return; }
+  loadFiles(files.map(f => f.name).sort());
+  this.value = '';
+});
+
+function loadFiles(filenames) {
+  if (!filenames.length) return;
+  const existing = new Set(rows.map(r => r.filename));
+  filenames.forEach(fn => { if (!existing.has(fn)) rows.push(makeRow(fn)); });
+  rows.sort((a, b) => a.filename.localeCompare(b.filename));
+  renderTable();
+}
+
+function clearTable() { rows = []; renderTable(); }
+
+// ── Render ───────────────────────────────────────────────────
+function renderTable() {
+  const tbody  = document.getElementById('tableBody');
+  const table  = document.getElementById('mainTable');
+  const empty  = document.getElementById('emptyState');
+  const statEl = document.getElementById('statBar');
+
+  if (!rows.length) {
+    table.style.display = 'none';
+    empty.style.display = 'block';
+    statEl.style.display = 'none';
+    document.getElementById('cmdOutput').value = '';
+    return;
+  }
+
+  empty.style.display = 'none';
+  table.style.display = '';
+  statEl.style.display = 'flex';
+
+  tbody.innerHTML = '';
+  rows.forEach((row, i) => tbody.appendChild(buildRowEl(row, i)));
+
+  updateStats();
+  generateCommands();
+}
+
+function buildRowEl(row, i) {
+  const tr = document.createElement('tr');
+  if (!row.encode) tr.classList.add('row-skip');
+
+  const dis     = !row.encode;
+  // Cell zone only active when surfType is faceZone and row is encoded
+  const czDis   = dis || row.surfType !== 'FZ';
+  // Level inputs disabled when auto is on, row is skipped, or surface is none
+  const sfDis   = dis || row.auto || row.surfType === 'none';
+  const vlDis   = dis || row.auto || row.volDir  === 'none';
+
+  const preview = computePreview(row);
+
+  tr.innerHTML = `
+    <td class="col-num">${i + 1}</td>
+    <td class="col-filename">
+      ${escHtml(row.filename)}
+      ${row.preEncoded ? '<span style="font-size:10px;background:#e8f4f8;color:#0066cc;padding:1px 5px;border-radius:8px;margin-left:5px;vertical-align:middle;">already encoded</span>' : ''}
+    </td>
+
+    <!-- Encode -->
+    <td class="col-check">
+      <input type="checkbox" ${row.encode ? 'checked' : ''}
+             onchange="upd(${i},'encode',this.checked)">
+    </td>
+
+    <!-- Auto Refine -->
+    <td class="col-check">
+      <input type="checkbox" ${row.auto ? 'checked' : ''} ${dis ? 'disabled' : ''}
+             onchange="upd(${i},'auto',this.checked)">
+    </td>
+
+    <!-- Surface Type -->
+    <td>
+      <select ${dis ? 'disabled' : ''} onchange="upd(${i},'surfType',this.value)">
+        <option value="none" ${row.surfType==='none' ?'selected':''}>none</option>
+        <option value="BND"  ${row.surfType==='BND'  ?'selected':''}>boundary</option>
+        <option value="FZ"   ${row.surfType==='FZ'   ?'selected':''}>faceZone</option>
+      </select>
+    </td>
+
+    <!-- Cell Zone -->
+    <td class="col-check">
+      <input type="checkbox" ${row.cellZone ? 'checked' : ''} ${czDis ? 'disabled' : ''}
+             onchange="upd(${i},'cellZone',this.checked)">
+    </td>
+
+    <!-- Surf Min -->
+    <td>
+      <input type="number" min="0" max="20" value="${row.surfMin}"
+             ${sfDis ? 'disabled' : ''}
+             onchange="upd(${i},'surfMin',+this.value)">
+    </td>
+
+    <!-- Surf Max -->
+    <td>
+      <input type="number" min="0" max="20" value="${row.surfMax}"
+             ${sfDis ? 'disabled' : ''}
+             onchange="upd(${i},'surfMax',+this.value)">
+    </td>
+
+    <!-- Volume Refinement direction -->
+    <td>
+      <select ${dis ? 'disabled' : ''} onchange="upd(${i},'volDir',this.value)">
+        <option value="none" ${row.volDir==='none' ?'selected':''}>none</option>
+        <option value="IN"   ${row.volDir==='IN'   ?'selected':''}>Inside</option>
+        <option value="OUT"  ${row.volDir==='OUT'  ?'selected':''}>Outside</option>
+      </select>
+    </td>
+
+    <!-- Vol Level -->
+    <td>
+      <input type="number" min="0" max="20" value="${row.volLevel}"
+             ${vlDis ? 'disabled' : ''}
+             onchange="upd(${i},'volLevel',+this.value)">
+    </td>
+
+    <!-- Preview -->
+    <td class="col-preview ${preview.cls}">${escHtml(preview.name)}</td>
+  `;
+  return tr;
+}
+
+function upd(i, field, value) {
+  rows[i][field] = value;
+  renderTable();
+}
+
+// ── Encoding logic ───────────────────────────────────────────
+// Resolve the surface tag token (BND / FZ / FZ_CZ)
+function surfToken(row) {
+  if (row.surfType === 'none') return null;
+  if (row.surfType === 'BND')  return 'BND';
+  // faceZone: add _CZ suffix only when cellZone is checked
+  return row.cellZone ? 'FZ_CZ' : 'FZ';
+}
+
+function computePreview(row) {
+  if (!row.encode) return { name: '(skipped)', cls: 'p-same' };
+
+  const st = surfToken(row);
+  let prefix = '';
+
+  if (row.auto) {
+    prefix += 'AUTO_';
+    if (st)              prefix += `SURF_${st}_`;
+    if (row.volDir !== 'none') prefix += `VOL_${row.volDir}_`;
+  } else {
+    if (st)              prefix += `SURF_${st}_L${row.surfMin}_L${row.surfMax}_`;
+    if (row.volDir !== 'none') prefix += `VOL_${row.volDir}_L${row.volLevel}_`;
+  }
+
+  if (!prefix) return { name: '⚠ no prefix — choose surface or volume type', cls: 'p-warn' };
+  const newName = prefix + row.baseName;
+  if (newName === row.filename) return { name: newName + '  ✓ unchanged', cls: 'p-same' };
+  return { name: newName, cls: 'p-encoded' };
+}
+
+// ── Stats ────────────────────────────────────────────────────
+function updateStats() {
+  const total    = rows.length;
+  const encoded  = rows.filter(r => r.encode).length;
+  const auto     = rows.filter(r => r.encode && r.auto).length;
+  const skipped  = rows.filter(r => !r.encode).length;
+  const noPrefix = rows.filter(r => r.encode && computePreview(r).cls === 'p-warn').length;
+
+  let html = `
+    <span>Total: ${total}</span>
+    <span>To encode: ${encoded}</span>
+    <span>Auto: ${auto}</span>
+    <span>Skip: ${skipped}</span>
+  `;
+  if (noPrefix) html += `<span class="warn">⚠ No prefix: ${noPrefix}</span>`;
+  document.getElementById('statBar').innerHTML = html;
+}
+
+// ── Command generation ───────────────────────────────────────
+function generateCommands() {
+  const lines = [
+    '#!/bin/bash',
+    '# Run from the directory containing the STL files (e.g. constant/triSurface)',
+    '',
+  ];
+  let count = 0;
+
+  rows.forEach(row => {
+    const preview = computePreview(row);
+    if (!row.encode || preview.cls === 'p-warn' || preview.cls === 'p-same') return;
+    if (preview.name === row.filename) return;
+    lines.push(`mv "${row.filename}" "${preview.name}"`);
+    count++;
+  });
+
+  if (count === 0) lines.push('# Nothing to rename');
+
+  document.getElementById('cmdOutput').value = lines.join('\n');
+  return count;
+}
+
+async function generateAndCopy() {
+  generateCommands();
+  const text = document.getElementById('cmdOutput').value;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.getElementById('cmdOutput');
+    ta.select();
+    document.execCommand('copy');
+  }
+  const notice = document.getElementById('copyNotice');
+  notice.style.display = 'inline';
+  setTimeout(() => notice.style.display = 'none', 2500);
+}
+
+// ── Utility ──────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>

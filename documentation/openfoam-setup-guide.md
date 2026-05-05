@@ -86,7 +86,7 @@ The directory should contain at minimum:
 
 ```bash
 sudo apt-get install python3-pip
-sudo apt-get install python3-numpy python3-tk
+sudo apt-get install python3-numpy python3-tk python3-trimesh
 ```
 
 ---

@@ -1,0 +1,180 @@
+{
+  "title": "JSON Examples for All 9 Standard Geometry Shapes",
+  "description": "Complete examples for searchable geometry shapes in snappyHexMesh",
+
+  "shape_1_searchableBox": {
+    "name": "domain",
+    "type": "searchableBox",
+    "min": [-10, -10, -10],
+    "max": [10, 10, 10]
+  },
+
+  "shape_2_searchableSphere": {
+    "name": "refinementZone",
+    "type": "searchableSphere",
+    "centre": [0, 0, 0],
+    "radius": 5
+  },
+
+  "shape_3_searchableCylinder": {
+    "name": "heatSink",
+    "type": "searchableCylinder",
+    "point1": [0, 0, -2],
+    "point2": [0, 0, 2],
+    "radius": 1.5
+  },
+
+  "shape_4a_searchableCone_solid": {
+    "name": "taperedDuct",
+    "type": "searchableCone",
+    "point1": [0, 0, 0],
+    "radius1": 2.0,
+    "innerRadius1": 0,
+    "point2": [5, 0, 0],
+    "radius2": 1.0,
+    "innerRadius2": 0
+  },
+
+  "shape_4b_searchableCone_hollow": {
+    "name": "hollowPipe",
+    "type": "searchableCone",
+    "point1": [0, 0, 0],
+    "radius1": 3.0,
+    "innerRadius1": 1.5,
+    "point2": [5, 0, 0],
+    "radius2": 2.0,
+    "innerRadius2": 1.0
+  },
+
+  "shape_5_searchableRotatedBox": {
+    "name": "rotatedDomain",
+    "type": "searchableRotatedBox",
+    "span": [5, 4, 3],
+    "origin": [0, 0, 0],
+    "e1": [0.707, 0.707, 0],
+    "e3": [0, 0, 1]
+  },
+
+  "shape_6_searchableDisk": {
+    "name": "inlet",
+    "type": "searchableDisk",
+    "origin": [-10, 0, 0],
+    "normal": [1, 0, 0],
+    "radius": 2
+  },
+
+  "shape_7_searchablePlate": {
+    "name": "baffle",
+    "type": "searchablePlate",
+    "origin": [0, 0, 5],
+    "span": [10, 8, 0]
+  },
+
+  "shape_8a_searchablePlane_pointAndNormal": {
+    "name": "symmetryPlane",
+    "type": "searchablePlane",
+    "planeType": "pointAndNormal",
+    "basePoint": [0, 0, 0],
+    "normal": [0, 0, 1]
+  },
+
+  "shape_8b_searchablePlane_embeddedPoints": {
+    "name": "customPlane",
+    "type": "searchablePlane",
+    "planeType": "embeddedPoints",
+    "point1": [1, 0, 0],
+    "point2": [0, 1, 0],
+    "point3": [0, 0, 1]
+  },
+
+  "shape_8c_searchablePlane_planeEquation": {
+    "name": "equationPlane",
+    "type": "searchablePlane",
+    "planeType": "planeEquation",
+    "a": 0,
+    "b": 0,
+    "c": 1,
+    "d": -2
+  },
+
+  "shape_9_searchableSurfaceWithGaps": {
+    "name": "heatSinkWithGapFix",
+    "type": "searchableSurfaceWithGaps",
+    "surface": "heatSink.stl",
+    "gap": 0.001
+  },
+
+  "full_geometry_array_mixed_example": {
+    "addLayers": false,
+    "mergeTolerance": 1e-06,
+    "geometry": [
+      {
+        "name": "outer-domain",
+        "type": "searchableBox",
+        "min": [-20, -15, -10],
+        "max": [20, 15, 10],
+        "volumeRefinement": {
+          "mode": "inside",
+          "level": 0
+        },
+        "surfaceRefinement": {
+          "level": [0, 1]
+        }
+      },
+      {
+        "name": "cylindrical-heatsink",
+        "type": "searchableCylinder",
+        "point1": [0, 0, -3],
+        "point2": [0, 0, 3],
+        "radius": 2.5,
+        "volumeRefinement": {
+          "mode": "distance",
+          "levels": [[0.5, 5], [2.0, 3]]
+        },
+        "surfaceRefinement": {
+          "level": [2, 4]
+        }
+      },
+      {
+        "name": "inlet-patch",
+        "type": "searchableDisk",
+        "origin": [-20, 0, 0],
+        "normal": [1, 0, 0],
+        "radius": 5,
+        "surfaceRefinement": {
+          "level": [1, 2]
+        }
+      },
+      {
+        "name": "outlet-patch",
+        "type": "searchableDisk",
+        "origin": [20, 0, 0],
+        "normal": [-1, 0, 0],
+        "radius": 5,
+        "surfaceRefinement": {
+          "level": [1, 2]
+        }
+      },
+      {
+        "name": "refinement-sphere",
+        "type": "searchableSphere",
+        "centre": [0, 0, 0],
+        "radius": 8,
+        "volumeRefinement": {
+          "mode": "inside",
+          "level": 2
+        }
+      },
+      {
+        "file": "complex-component.stl",
+        "volumeRefinement": {
+          "mode": "inside",
+          "level": 1
+        },
+        "surfaceRefinement": {
+          "level": [1, 3]
+        }
+      }
+    ]
+  }
+}
