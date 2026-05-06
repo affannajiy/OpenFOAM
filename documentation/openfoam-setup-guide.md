@@ -76,9 +76,15 @@ mkdir 01_utilities
 ```
 
 The directory should contain at minimum:
-- `01_utilities/generateBackgroundMesh.py`
-- `01_utilities/generateSnappyHexMeshDict.py`
-- `01_utilities/openfoam_ui.py`
+- `01_utilities/openfoam_ui.py` — GUI entry point
+- `01_utilities/ui_shared.py`, `ui_log_drawer.py`, `ui_background_mesh.py`, `ui_snappy_hex.py` — GUI modules
+- `01_utilities/setup_snappy.py` — snappyHexMeshDict backend
+- `01_utilities/encoding_utils.py` — filename encoding helpers
+- `01_utilities/auto_refinement.py` — AUTO_ analysis (optional)
+- `01_utilities/defaults.json` — default mesh control values
+- `01_utilities/templates/` — Jinja2 templates directory
+- `01_utilities/generateBackgroundMesh.py` — CLI: blockMesh from STL bbox
+- `01_utilities/generateSnappyHexMeshDict.py` — CLI: interactive snappyHexMeshDict
 
 ---
 
@@ -86,8 +92,26 @@ The directory should contain at minimum:
 
 ```bash
 sudo apt-get install python3-pip
-sudo apt-get install python3-numpy python3-tk python3-trimesh
+sudo apt-get install python3-numpy python3-pyqt5 python3-jinja2
 ```
+
+Or install everything from the requirements file:
+
+```bash
+pip3 install -r /mnt/c/OpenFOAM/01_utilities/requirements.txt --break-system-packages
+```
+
+| Package | Required | Purpose |
+|---------|----------|---------|
+| `python3-pyqt5` | Yes | GUI framework (`openfoam_ui.py`) |
+| `python3-numpy` | Yes | Bounding box arithmetic (background mesh) |
+| `python3-jinja2` | Yes | Dictionary template rendering (snappyHexMeshDict) |
+| `python3-trimesh` | Optional | `AUTO_` auto-refinement geometry analysis |
+
+> To enable `AUTO_`-prefixed STL auto-refinement, install trimesh separately:
+> ```bash
+> sudo apt-get install python3-trimesh
+> ```
 
 ---
 

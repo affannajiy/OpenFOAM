@@ -356,9 +356,14 @@ try:
     print("\nRefinement settings for feature edges")
     print("-------------------------------------")
     
+    # foamDictionary cannot write the features list-of-dict block because it
+    # uses OpenFOAM's list syntax ( { ... } { ... } ) rather than the simple
+    # key-value pairs that foamDictionary supports.  Instead, we read the
+    # half-written file, locate the closing brace of castellatedMeshControls,
+    # and splice the features block in just before it.
     with open(snappy_hex_mesh_dict_file, "r") as file:
         lines = file.readlines()
-    
+
     modified_lines = []
     inside_castellated_section = False
 
@@ -370,9 +375,10 @@ try:
         if stripped_line.startswith("castellatedMeshControls"):
             inside_castellated_section = True
 
-        # Detect the end of 'castellatedMeshControls' section
+        # Detect the end of 'castellatedMeshControls' section — inject the
+        # features block immediately before the closing brace so it lands
+        # inside castellatedMeshControls rather than after it.
         if inside_castellated_section and stripped_line == "}":
-            # Append the 'features' section before the closing brace
             modified_lines.insert(-1, "    features\n")
             modified_lines.insert(-1,"    (\n")
             for ii in range(len(edge_files)):
@@ -382,10 +388,8 @@ try:
                 modified_lines.insert(-1,f"        level    {edge_ref_level};\n")
                 modified_lines.insert(-1,"        }\n")
             modified_lines.insert(-1,"    );\n")
-            inside_castellated_section = False  # Exit the section
-    #--------------------------------------------------------------------------------------------------
-    # END OF features - refinement level
-    
+            inside_castellated_section = False  # Exit the section after the first closing brace
+
     # Write back the modified content
     with open(snappy_hex_mesh_dict_file, "w") as file:
         file.writelines(modified_lines)    
@@ -430,11 +434,17 @@ try:
     print("------------------")
     execute_command("foamDictionary system/snappyHexMeshDict -entry castellatedMeshControls/refinementSurfaces -add \"{}\"")
     
+    # standalone_surfaces: STL files with a single zone (solid name) and all
+    #   special shapes.  These get optional per-surface refinement (user may skip).
+    # layer_surfaces: every named boundary/faceZone that ends up with patchInfo —
+    #   collected here so the layer-addition section can list them for prism layers.
     standalone_surfaces = []
-    layer_surfaces = [] # boundary names for layer addition process
+    layer_surfaces = []
     for ii in range(len(geometry_region_names)):
         zone_names = region_zone_list[ii]
         if(len(zone_names) > 1):
+            # Multi-zone STL: per-region refinement is mandatory because each solid
+            # name becomes an independent boundary patch in the mesh.
             execute_command("foamDictionary system/snappyHexMeshDict -entry castellatedMeshControls/refinementSurfaces/"+geometry_region_names[ii]+" -add \"{}\"")
             min_level, max_level = get_min_max(f"\nEnter the global surface refinement levels for \"{geometry_region_names[ii]}\"- min max: ")
             execute_command(f"foamDictionary system/snappyHexMeshDict -entry castellatedMeshControls/refinementSurfaces/{geometry_region_names[ii]}/level -add \"({min_level} {max_level})\"")
@@ -560,6 +570,9 @@ try:
 
         execute_command("foamDictionary system/snappyHexMeshDict -entry addLayersControls/meshShrinker -add displacementMotionSolver")
         execute_command("foamDictionary system/snappyHexMeshDict -entry addLayersControls/solver -add displacementLaplacian")
+        # patch_list is assembled as an OF list literal "( patch1 patch2 );" so
+        # it can be embedded directly into the displacementLaplacianCoeffs entry.
+        # inverseDistance weights cell-displacement smoothing toward the wall patches.
         text_string = "{ diffusivity quadratic inverseDistance "+ patch_list +" }"
         execute_command("foamDictionary system/snappyHexMeshDict -entry addLayersControls/displacementLaplacianCoeffs"+" -add \""+text_string+"\"")
         

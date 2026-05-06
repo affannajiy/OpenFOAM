@@ -53,7 +53,7 @@ castellatedMeshControls
         inner-cylinder
         {
             mode            inside;
-            levels          ( ( 1 2 ) );
+            levels          ( ( 1 1 ) );
             gapLevel        ( 3 0 3 );
             gapMode         mixed;
         }
@@ -69,19 +69,10 @@ castellatedMeshControls
                 inGroups        ( walls );
             }
         }
-        inner-cylinder
-        {
-            level           ( 0 2 );
-            patchInfo
-            {
-                type            wall;
-                inGroups        ( walls );
-            }
-        }
     }
     resolveFeatureAngle 30;
     nCellsBetweenLevels 2;
-    locationInMesh  ( 0 0 0 );
+    locationInMesh  ( 0 0 0.5 );
     allowFreeStandingZoneFaces true;
 }
 

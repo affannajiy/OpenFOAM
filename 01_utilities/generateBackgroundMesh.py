@@ -78,10 +78,13 @@ def create_block_mesh_dict(system_folder, bounding_box_info, dx, dy, dz):
     maxCoords = np.array([xMax, yMax, zMax])
     delta = np.array([dx, dy, dz])
     nCells = []
-    
-    # scaling factor to make the background mesh larger the domain extents of the STL 
+
+    # scaling factor to make the background mesh larger the domain extents of the STL
     scaleBox = 1.1
 
+    # Expand each axis symmetrically around its centroid rather than scaling
+    # min/max directly.  This keeps the geometry centered inside the block.
+    # e.g. for axis i: C = midpoint, new_min = C - 1.1*(C - old_min)
     for i in range(3):
         C = 0.5*(minCoords[i]+maxCoords[i])
         minCoords[i] = C - scaleBox*(C - minCoords[i])
@@ -94,13 +97,17 @@ def create_block_mesh_dict(system_folder, bounding_box_info, dx, dy, dz):
             raise ValueError("Error: Length must be a positive number.")
 
         if length > delta[i]:
+            # Truncate to the integer number of full cells that fit.
             tempNum = int(length/delta[i])
             tempMaxCoords = minCoords[i] + tempNum*delta[i]
 
+            # If the grid doesn't cover the full scaled extent, add one more
+            # cell and snap maxCoords up to the next grid line so the block
+            # exactly contains the geometry without leaving a partial cell.
             if tempMaxCoords < maxCoords[i]:
                 tempNum = tempNum + 1
                 maxCoords[i] = minCoords[i] + tempNum*delta[i]
-                
+
             nCells.append(tempNum)
         else:
             raise ValueError("Error: Length of an edge is less than or equal to base grid. Cannot proceed.")

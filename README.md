@@ -1,81 +1,173 @@
 # OpenFOAM Mesh Generation Utilities
 
-Python utilities for automating snappyHexMesh setup in ESI OpenFOAM v2506.
+Python utilities for automating snappyHexMesh setup in ESI OpenFOAM v2506, with a PyQt5 GUI and CLI fallbacks.
 
 ## Prerequisites
 
-- WSL/Ubuntu with OpenFOAM installed (see `openfoam-setup-guide.md`)
-- OpenFOAM environment sourced (`of2506` or `source /usr/lib/openfoam/openfoam2506/etc/bashrc`)
-- `python3-numpy` for `generateBackgroundMesh.py`
-- `python3-tk` for `openfoam_ui.py`
-- Run scripts from within an OpenFOAM case directory
+- WSL/Ubuntu with OpenFOAM installed (see [`documentation/openfoam-setup-guide.md`](documentation/openfoam-setup-guide.md))
+- OpenFOAM environment sourced: `source /usr/lib/openfoam/openfoam2506/etc/bashrc`
+- Python dependencies installed (see [Installation](#installation))
+- Scripts must be launched from inside an OpenFOAM case directory
 
-## Scripts
+## Installation
 
-### openfoam_ui.py
-
-Unified tkinter GUI that wraps both mesh utilities in a tabbed interface. Recommended for interactive use.
+Install Python dependencies in WSL:
 
 ```bash
+sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2
+```
+
+Or with pip (Ubuntu 24.04+):
+
+```bash
+pip3 install -r 01_utilities/requirements.txt --break-system-packages
+```
+
+| Package | Required | Purpose |
+|---------|----------|---------|
+| `PyQt5` | Yes | GUI framework |
+| `numpy` | Yes | Bounding box arithmetic |
+| `jinja2` | Yes | Dictionary template rendering |
+| `trimesh` | Optional | `AUTO_` auto-refinement analysis |
+
+## GUI Application (Recommended)
+
+Launch from an OpenFOAM case directory:
+
+```bash
+cd /mnt/c/OpenFOAM/03_mesh_session
 python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
 ```
 
-- **Tab 1 — Background Mesh**: file picker for the STL, grid-size inputs, and a live log panel; calls `generateBackgroundMesh.py` via subprocess.
-- **Tab 2 — snappyHexMeshDict**: scrollable multi-section form that drives `foamDictionary` directly to build `system/snappyHexMeshDict`.
-  - Section 1: select surface/edge files from `constant/triSurface/`; add standard shapes (Box, Cylinder, Sphere)
-  - Section 2: castellation & refinement — edge, surface, volumetric, and gap refinement levels; nCellsBetweenLevels; location in mesh
-  - Section 3: snap controls — implicit or explicit feature snapping
-  - Section 4: layer addition — per-patch nSurfaceLayers
-  - Section 5: two-step action — "Generate snappyHexMeshDict" writes `system/snappyHexMeshDict` (and `fvSchemes`/`fvSolution` when layers are enabled); "Run snappyHexMesh" then calls the binary and streams output to the log; existing time directories are shown live; mesh quality parameters are hardcoded defaults
+The GUI is a 1100×760 PyQt5 window with two tabs:
 
-Requires `python3-tk` (`sudo apt-get install python3-tk`). Launch from an OpenFOAM case directory with the environment already sourced.
+### Tab 1 — Background Mesh
+
+Generates `system/blockMeshDict` from an STL bounding box and runs `blockMesh`.
+
+1. **STL file** — browse or paste path; auto-detects case root from `constant/` in the path (works regardless of the geometry subfolder name)
+2. **Grid resolution** — DX / DY / DZ cell sizes in metres
+3. Click **Generate Background Mesh** — runs `surfaceCheck`, writes `blockMeshDict`, runs `blockMesh`, creates `<case>.foam`
+4. **Cancel** — stops a running job and clears all input fields
+
+### Tab 2 — SnappyHexMesh Dict
+
+Five-section card form that writes `system/snappyHexMeshDict` via Jinja2 template rendering and optionally runs `snappyHexMesh`.
+
+| Section | Content |
+|---------|---------|
+| **01 Geometry** | File table listing all STL/OBJ files found under `constant/` (any subfolder); set Surface Type (None / Boundary / FaceZone / FaceZone+CellZone), min/max refinement levels, and Volume Direction + level per file; filenames may use the `SURF_` / `VOL_` encoding convention for auto-population |
+| **02 Castellation** | Geometry unit (mm / m / cm / µm / in / ft), nCellsBetweenLevels, location-in-mesh X Y Z |
+| **03 Snap controls** | Implicit feature snapping toggle |
+| **04 Layer addition** | Enable boundary layers; per-patch nSurfaceLayers spinboxes (populated from Section 01 surface selections) |
+| **05 Generate & Run** | **Generate snappyHexMeshDict** merges GUI values with `defaults.json` and renders `system/snappyHexMeshDict` (plus `fvSchemes`/`fvSolution` when layers are on); **Run snappyHexMesh** streams the solver to the log and refreshes the `.foam` file |
+
+#### Filename Encoding Convention
+
+STL files can embed refinement metadata directly in the filename so the GUI auto-populates fields:
+
+```
+SURF_BND_L2_L4_wallName.stl          → Boundary surface, refinement 2–4
+SURF_FZ_CZ_L1_L2_VOL_IN_L3_zone.stl → FaceZone+CellZone surface, vol inside at level 3
+AUTO_wallName.stl                     → Auto-analysis via trimesh (requires trimesh installed)
+```
+
+Prefix tokens: `SURF` (surface), `BND` (boundary), `FZ` (face zone), `CZ` (cell zone), `VOL` (volume region), `IN`/`OUT` (inside/outside), `L<n>` (refinement level).
+
+The **Output Log** at the bottom of the window starts expanded and streams all subprocess output with colour-coded tags. Drag its bottom edge upward to resize it, or click the chevron to collapse/expand.
+
+## CLI Tools
 
 ### generateBackgroundMesh.py
 
-Reads an STL file's bounding box via `surfaceCheck`, generates `system/blockMeshDict`, and runs `blockMesh`.
+Reads an STL bounding box via `surfaceCheck`, writes `system/blockMeshDict`, and runs `blockMesh`.
 
 ```bash
-python3 generateBackgroundMesh.py -stlPath <path/to/file.stl> -dx <float> -dy <float> -dz <float>
+cd /mnt/c/OpenFOAM/03_mesh_session
+source /usr/lib/openfoam/openfoam2506/etc/bashrc
+
+python3 /mnt/c/OpenFOAM/01_utilities/generateBackgroundMesh.py \
+  -stlPath constant/triSurface/geometry.stl \
+  -dx 0.05 -dy 0.05 -dz 0.05
 ```
 
 | Argument | Description |
 |----------|-------------|
 | `-stlPath` | Path to the STL file |
-| `-dx` | Base grid size in x-direction |
-| `-dy` | Base grid size in y-direction |
-| `-dz` | Base grid size in z-direction |
+| `-dx` | Cell size in x (metres) |
+| `-dy` | Cell size in y (metres) |
+| `-dz` | Cell size in z (metres) |
 
 Logs are written to `programOutputs/`.
 
 ### generateSnappyHexMeshDict.py
 
-Interactively builds `system/snappyHexMeshDict` through a series of prompts. Also generates `system/fvSchemes` and `system/fvSolution` when boundary layer addition is enabled. Written for ESI OpenFOAM v2312; compatible with v2506.
+Interactive CLI that builds `system/snappyHexMeshDict` through prompts. Also generates `system/fvSchemes` and `system/fvSolution` when boundary layer addition is enabled.
 
 ```bash
-python3 generateSnappyHexMeshDict.py
+cd /mnt/c/OpenFOAM/03_mesh_session
+source /usr/lib/openfoam/openfoam2506/etc/bashrc
+python3 /mnt/c/OpenFOAM/01_utilities/generateSnappyHexMeshDict.py
 ```
 
-Requires `system/controlDict` and `constant/triSurface/` to exist before running.
+Requires `system/controlDict` and a `constant/` directory to exist in the case root.
 
 ## Typical Workflow
 
 ```bash
-# 1. Generate background mesh (GUI or CLI)
-python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
-# — or —
-python3 generateBackgroundMesh.py -stlPath constant/triSurface/geometry.stl -dx 0.1 -dy 0.1 -dz 0.1
+# 1. Start in an OpenFOAM case directory with the environment sourced
+cd /mnt/c/OpenFOAM/03_mesh_session
+source /usr/lib/openfoam/openfoam2506/etc/bashrc
 
-# 2. Extract feature edges (for explicit snapping)
+# 2. Generate background mesh
+python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
+# Tab 1: select STL, set DX/DY/DZ, click Generate
+
+# 3. Extract feature edges (for explicit snapping)
 surfaceFeatureExtract
 
-# 3. Generate snappyHexMeshDict (GUI or CLI)
-# Use Tab 2 in openfoam_ui.py, or:
-python3 generateSnappyHexMeshDict.py
-
-# 4. Run snappyHexMesh (GUI button in Section 5, or CLI)
+# 4. Configure and run snappyHexMesh
+# Tab 2: configure all sections, Generate dict, then Run
+# — or CLI fallback:
 snappyHexMesh -overwrite
+
+# 5. Open in ParaView
+# Click "Open ParaView" in the header bar
 ```
 
-## Setup
+## Repository Layout
 
-See [openfoam-setup-guide.md](openfoam-setup-guide.md) for full WSL + OpenFOAM installation instructions and alias configuration.
+```
+C:\OpenFOAM\
+├── 01_utilities\               # Python tooling
+│   ├── openfoam_ui.py          # PyQt5 GUI entry point (single command to run everything)
+│   ├── ui_shared.py            # Colour tokens, styles, shared helpers
+│   ├── ui_log_drawer.py        # Collapsible/resizable log drawer widget
+│   ├── ui_background_mesh.py   # Background Mesh tab widget
+│   ├── ui_snappy_hex.py        # SnappyHexMesh Dict tab widget (Jinja2-based)
+│   ├── setup_snappy.py         # Core config merging, validation, and template rendering
+│   ├── encoding_utils.py       # Filename encoding/decoding (SURF_, VOL_, FZ_, etc.)
+│   ├── auto_refinement.py      # AUTO_ geometry analysis via trimesh (optional)
+│   ├── defaults.json           # Default values for all snappyHexMesh controls
+│   ├── templates\
+│   │   ├── snappyHexMeshDict.template  # Jinja2 template for snappyHexMeshDict
+│   │   └── blockMeshDict.template      # Jinja2 template for blockMeshDict
+│   ├── generateBackgroundMesh.py       # CLI: blockMesh from STL bbox (do not modify)
+│   ├── generateSnappyHexMeshDict.py    # CLI: interactive snappyHexMeshDict (do not modify)
+│   └── requirements.txt        # Python dependencies
+├── 03_mesh_session\            # Example OpenFOAM case
+│   ├── constant\<geometry>\    # Input STL geometry files (any subfolder name)
+│   ├── constant\polyMesh\      # Generated mesh (blockMesh output)
+│   ├── system\                 # Dictionaries (blockMeshDict, snappyHexMeshDict, …)
+│   └── programOutputs\         # Captured log files
+├── documentation\
+│   └── openfoam-setup-guide.md # WSL + OpenFOAM installation guide
+└── CLAUDE.md                   # AI assistant guidance
+```
+
+## Notes
+
+- Windows path `C:\OpenFOAM` maps to WSL path `/mnt/c/OpenFOAM`
+- Target OpenFOAM version: **2506** (also compatible with 2312)
+- ParaView is detected automatically by scanning `C:\Program Files\ParaView*\bin\paraview.exe` (newest version wins)
+- All OpenFOAM executables must be run inside WSL — they do not exist in Windows CMD/PowerShell
