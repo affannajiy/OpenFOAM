@@ -104,6 +104,21 @@ STYLE_BTN_SMALL_GHOST = f"""
     QPushButton:hover {{ border-color: {TEXT_MUTED}; color: {TEXT_PRIMARY}; }}
 """
 
+STYLE_BTN_SMALL_RED = f"""
+    QPushButton {{
+        background: {KS_RED};
+        color: {TEXT_WHITE};
+        border: none;
+        border-radius: 3px;
+        padding: 6px 13px;
+        font-family: 'Segoe UI';
+        font-size: 13px;
+        font-weight: 600;
+    }}
+    QPushButton:hover    {{ background: {KS_RED_DARK}; }}
+    QPushButton:disabled {{ background: {BORDER}; color: {TEXT_MUTED}; }}
+"""
+
 STYLE_ENTRY = f"""
     QLineEdit {{
         background: {BG_CARD};
@@ -542,6 +557,24 @@ def run_of_command(cmd: str, cwd: str, log_callback: Callable) -> int:
     except Exception as exc:
         log_callback(f"  Exception: {exc}\n", "error")
         return -1
+
+
+def to_wsl_path(p: str) -> str:
+    """Convert a Windows drive-letter path to its WSL /mnt/ equivalent.
+
+    QFileDialog can return Windows-style paths (C:\\...) when running under
+    WSLg or a native file dialog.  OpenFOAM executables only understand Linux
+    paths, so any path that looks like a Windows drive path is remapped here.
+    """
+    import re
+    if not p:
+        return p
+    m = re.match(r'^([A-Za-z]):[/\\](.*)$', p)
+    if m:
+        drive = m.group(1).lower()
+        rest  = m.group(2).replace('\\', '/')
+        return f'/mnt/{drive}/{rest}'
+    return p.replace('\\', '/')
 
 
 def run_foam_cmd(cmd: str, cwd: str, log_callback: Callable) -> int:

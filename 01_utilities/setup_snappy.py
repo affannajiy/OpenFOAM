@@ -875,9 +875,11 @@ def resolve_surface_handling(config, geometry_map, extract_from_names, auto_leve
             if resolved['cellZoneInside'] is not None and resolved['cellZoneName'] is None:
                 resolved['cellZoneName'] = resolved['faceZoneName']
         else:
+            # boundary type: faceZone fields never apply
             resolved['faceZoneName'] = None
-            resolved['cellZoneInside'] = None
-            resolved['cellZoneName'] = None
+            # cellZone is valid for boundary+cellZone: preserve cellZoneInside if set
+            if resolved['cellZoneInside'] is not None and resolved['cellZoneName'] is None:
+                resolved['cellZoneName'] = clean_name
 
         result.append(resolved)
 

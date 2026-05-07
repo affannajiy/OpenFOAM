@@ -42,9 +42,9 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from ui_shared import (
     KS_RED, BG_APP, BG_CARD, BG_SUBTLE, BORDER, BORDER_SOFT,
     TEXT_PRIMARY, TEXT_MUTED, TEXT_WHITE,
-    STYLE_BTN_PRIMARY, STYLE_BTN_SMALL_GHOST,
+    STYLE_BTN_PRIMARY, STYLE_BTN_SMALL_GHOST, STYLE_BTN_SMALL_RED,
     STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_CHECKBOX,
-    build_card, run_of_command, PlusMinusSpinBox,
+    build_card, run_of_command, to_wsl_path, PlusMinusSpinBox,
 )
 
 try:
@@ -68,7 +68,7 @@ except Exception as _imp_exc:
 
 _DEFAULTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "defaults.json")
 _GEOM_UNITS = ["mm", "m", "cm", "um", "in", "ft"]
-_SURF_TYPES = ["None", "Boundary", "FaceZone", "FaceZone+CellZone"]
+_SURF_TYPES = ["None", "Boundary", "FaceZone", "FaceZone+CellZone", "Boundary+CellZone"]
 _VOL_DIRS   = ["None", "Inside", "Outside"]
 
 
@@ -231,7 +231,7 @@ class SnappyHexWidget(QWidget):
             f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 11px; background: transparent;")
         self._cwd_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         change_btn = QPushButton("Change…")
-        change_btn.setStyleSheet(STYLE_BTN_SMALL_GHOST)
+        change_btn.setStyleSheet(STYLE_BTN_SMALL_RED)
         change_btn.clicked.connect(self._change_cwd)
         cwd_row.addWidget(cwd_lbl)
         cwd_row.addWidget(self._cwd_lbl)
@@ -397,7 +397,7 @@ class SnappyHexWidget(QWidget):
             return l
 
         hdr_row.addWidget(_hdr("FILE"))
-        hdr_row.addWidget(_hdr("SURFACE TYPE", 140))
+        hdr_row.addWidget(_hdr("SURFACE TYPE", 160))
         hdr_row.addWidget(_hdr("S.MIN", 60))
         hdr_row.addWidget(_hdr("S.MAX", 60))
         hdr_row.addWidget(_hdr("VOL DIR", 94))
@@ -422,7 +422,7 @@ class SnappyHexWidget(QWidget):
             surf_type_combo = QComboBox()
             surf_type_combo.addItems(_SURF_TYPES)
             surf_type_combo.setStyleSheet(STYLE_COMBO)
-            surf_type_combo.setFixedWidth(140)
+            surf_type_combo.setFixedWidth(160)
             row_layout.addWidget(surf_type_combo)
 
             surf_min_sp = PlusMinusSpinBox()
@@ -825,11 +825,24 @@ class SnappyHexWidget(QWidget):
         else:
             self._snappy_banner.setVisible(False)
 
+    def set_case_dir(self, case_dir: str):
+        """Called by MainWindow when the user picks a project on the landing page."""
+        case_dir = to_wsl_path(case_dir)
+        self._cwd = case_dir
+        os.chdir(case_dir)
+        if self._cwd_lbl:
+            self._cwd_lbl.setText(case_dir)
+        self._refresh_file_list()
+        self._update_dict_banner()
+        self._update_snappy_banner()
+        self._update_time_dirs()
+
     def _change_cwd(self):
         d = QFileDialog.getExistingDirectory(
             self, "Select OpenFOAM case directory", self._cwd)
         if not d:
             return
+        d = to_wsl_path(d)
         self._cwd = d
         os.chdir(d)
         self._cwd_lbl.setText(d)
@@ -876,6 +889,9 @@ class SnappyHexWidget(QWidget):
                 elif surf_text == "FaceZone+CellZone":
                     entry["type"] = "faceZone"
                     entry["cellZoneInside"] = "inside"
+                elif surf_text == "Boundary+CellZone":
+                    entry["type"] = "boundary"
+                    entry["cellZoneInside"] = "inside"
                 surfaces_dict[stem] = entry
 
             if vol_text != "None":
@@ -896,13 +912,15 @@ class SnappyHexWidget(QWidget):
         snap_implicit = (self._snap_implicit_cb.isChecked()
                          if self._snap_implicit_cb else True)
 
+        has_auto = any(fname.startswith("AUTO_") for fname in files)
+
         override: dict = {
             "settings": {
                 "geometryUnit": (self._geom_unit_combo.currentText()
                                  if self._geom_unit_combo else "mm"),
                 "addLayers":    add_layers,
                 "mergeTolerance":             1e-6,
-                "extractRefinementFromNames": False,
+                "extractRefinementFromNames": has_auto,
             },
             "castellatedMeshControls": {
                 "locationInMesh": [

@@ -28,9 +28,9 @@ from PyQt5.QtGui import QFont
 
 from ui_shared import (
     KS_RED, BG_APP, BG_CARD, BORDER, TEXT_PRIMARY, TEXT_MUTED,
-    STYLE_BTN_PRIMARY, STYLE_BTN_GHOST, STYLE_BTN_SMALL_GHOST,
+    STYLE_BTN_PRIMARY, STYLE_BTN_GHOST, STYLE_BTN_SMALL_GHOST, STYLE_BTN_SMALL_RED,
     STYLE_ENTRY, STYLE_SCROLL,
-    build_card, positive_float, run_of_command,
+    build_card, positive_float, run_of_command, to_wsl_path,
 )
 
 try:
@@ -234,7 +234,7 @@ class BackgroundMeshWidget(QWidget):
         self._stl_edit.textChanged.connect(self._update_overwrite_banner)
 
         browse_btn = QPushButton("Browse…")
-        browse_btn.setStyleSheet(STYLE_BTN_SMALL_GHOST)
+        browse_btn.setStyleSheet(STYLE_BTN_SMALL_RED)
         browse_btn.clicked.connect(self._browse)
 
         stl_row.addWidget(self._stl_edit)
@@ -316,12 +316,38 @@ class BackgroundMeshWidget(QWidget):
 
     # ── Slots ──────────────────────────────────────────────────────────────────
 
+    def set_case_dir(self, case_dir: str):
+        """Called by MainWindow when the user picks a project on the landing page."""
+        case_dir = to_wsl_path(case_dir)
+        # Scan constant/ recursively for the first STL file and pre-fill the path.
+        stl_path = None
+        constant_dir = os.path.join(case_dir, "constant")
+        if os.path.isdir(constant_dir):
+            for root, _dirs, files in os.walk(constant_dir):
+                for fname in sorted(files):
+                    if fname.lower().endswith(".stl"):
+                        stl_path = os.path.join(root, fname)
+                        break
+                if stl_path:
+                    break
+        if stl_path:
+            self._stl_edit.setText(stl_path)
+            self._log.write(
+                f"[Background Mesh] Auto-detected STL: {stl_path}\n", "info")
+        self._update_overwrite_banner()
+
     def _browse(self):
+        start_dir = os.getcwd()
+        # Start inside constant/ so the user lands near the STL files.
+        constant_dir = os.path.join(start_dir, "constant")
+        if os.path.isdir(constant_dir):
+            start_dir = constant_dir
         p, _ = QFileDialog.getOpenFileName(
-            self, "Select STL file", os.getcwd(),
+            self, "Select STL file", start_dir,
             "STL files (*.stl);;All files (*.*)")
         if not p:
             return
+        p = to_wsl_path(p)
         self._stl_edit.setText(p)
 
         # If the selected file is anywhere under .../constant/, the directory
@@ -332,16 +358,17 @@ class BackgroundMeshWidget(QWidget):
         idx = norm.lower().rfind(marker)
         inferred = p[:idx] if idx >= 0 else os.path.dirname(p)
 
-        reply = QMessageBox.question(
-            self, "Change working directory?",
-            f"Detected case root:\n  {inferred}\n\n"
-            "Change the working directory to this location?",
-            QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            os.chdir(inferred)
-            self._log.write(
-                f"[Background Mesh] Case directory set to: {inferred}\n", "info")
-            self._update_overwrite_banner()
+        if inferred != os.getcwd():
+            reply = QMessageBox.question(
+                self, "Change working directory?",
+                f"Detected case root:\n  {inferred}\n\n"
+                "Change the working directory to this location?",
+                QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                os.chdir(inferred)
+                self._log.write(
+                    f"[Background Mesh] Case directory set to: {inferred}\n", "info")
+        self._update_overwrite_banner()
 
     def _update_overwrite_banner(self):
         """

@@ -352,6 +352,8 @@ class MainWindow(QMainWindow):
             os.chdir(case_dir)
         except Exception:
             pass
+        self._bg_widget.set_case_dir(case_dir)
+        self._snappy_widget.set_case_dir(case_dir)
         self._root_stack.setCurrentIndex(1)
         self._home_btn.setVisible(True)
         self._switch_tab(util_id)

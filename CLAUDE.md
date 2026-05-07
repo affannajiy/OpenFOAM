@@ -117,7 +117,7 @@ Key layout (top to bottom, fixed heights except the stack):
 **`ui_snappy_hex.py`** — `SnappyHexWidget(QWidget)` (Tab 2):
 - CWD slim bar (40 px) with Change button
 - Five section cards (01–05) in a `QScrollArea`
-- Section 01: file table with columns FILE / SURFACE TYPE / S.MIN / S.MAX / VOL DIR / V.LVL per STL row
+- Section 01: file table with columns FILE / SURFACE TYPE / S.MIN / S.MAX / VOL DIR / V.LVL per STL row; Surface Type options are None / Boundary / FaceZone / FaceZone+CellZone / Boundary+CellZone
 - Section 02: geometry unit (mm/m/cm/µm/in/ft), nCellsBetweenLevels, location-in-mesh X Y Z
 - Section 03: implicit feature snapping checkbox
 - Section 04: add-layers checkbox + per-patch nSurfaceLayers spinboxes (auto-populated from Section 01 surface selections)
@@ -130,7 +130,7 @@ Key layout (top to bottom, fixed heights except the stack):
 - `deep_merge(base, override)` — recursive dict merge; lists are replaced, not combined
 - `load_snappy_config(config_path)` — loads a JSON config file and merges with `defaults.json`
 - `load_geometry_files(config)` — walks `constant/` recursively to locate each geometry file; accepts any subfolder name
-- `process_geometry()`, `resolve_surface_handling()`, `resolve_volume_refinement()` — build the geometry, surface, and volume refinement data structures for the template
+- `process_geometry()`, `resolve_surface_handling()`, `resolve_volume_refinement()` — build the geometry, surface, and volume refinement data structures for the template; `resolve_surface_handling()` supports four surface modes: boundary, faceZone, faceZone+cellZone, and boundary+cellZone (cellZoneInside is preserved for boundary type when explicitly set)
 - `render_template(name, context)` — renders a Jinja2 template from `templates/`
 - `generate_snappy_dict_from_config(config, sys_dir, log_cb, cwd=None)` — GUI entry point; temporarily `os.chdir(cwd)` for relative path resolution, then calls `_do_generate()`; restores CWD in `finally`
 - `_do_generate(config, sys_dir, log_cb)` — wraps all validators in `try/except SystemExit` and re-raises as `RuntimeError` so worker threads can catch it cleanly

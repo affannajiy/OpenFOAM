@@ -16,7 +16,7 @@ from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QComboBox, QScrollArea, QSizePolicy,
-    QApplication, QFileDialog, QStackedWidget, QMessageBox,
+    QFileDialog, QStackedWidget, QMessageBox,
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -24,8 +24,8 @@ from ui_shared import (
     KS_RED, KS_RED_DARK, KS_RED_LT, KS_BLACK,
     BG_APP, BG_CARD, BG_SUBTLE,
     BORDER, BORDER_SOFT,
-    TEXT_PRIMARY, TEXT_MUTED, TEXT_WHITE,
-    STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL,
+    TEXT_PRIMARY, TEXT_MUTED,
+    STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_BTN_SMALL_RED,
     find_paraview_exe, build_card,
 )
 
@@ -159,11 +159,7 @@ class LandingWidget(QWidget):
         self._build_columns(content)
         content.addStretch()
 
-        # ── Action row outside scroll so it's always visible ──────────────────
-        self._build_action_row(outer)
-
         self._update_preview()
-        self._update_continue_state()
 
     # ── Hero strip ────────────────────────────────────────────────────────────
 
@@ -333,7 +329,7 @@ class LandingWidget(QWidget):
         browse_loc = QPushButton("Browse…")
         browse_loc.setFixedWidth(90)
         browse_loc.setCursor(Qt.PointingHandCursor)
-        browse_loc.setStyleSheet(self._ghost_btn_ss())
+        browse_loc.setStyleSheet(STYLE_BTN_SMALL_RED)
         browse_loc.clicked.connect(self._browse_location)
         loc_row.addWidget(self._loc_edit, 1)
         loc_row.addWidget(browse_loc)
@@ -373,7 +369,7 @@ class LandingWidget(QWidget):
     def _build_open_existing_form(self, vbox: QVBoxLayout):
         browse_btn = QPushButton("Browse for case folder…")
         browse_btn.setCursor(Qt.PointingHandCursor)
-        browse_btn.setStyleSheet(self._ghost_btn_ss())
+        browse_btn.setStyleSheet(STYLE_BTN_SMALL_RED)
         browse_btn.clicked.connect(self._browse_open_case)
         vbox.addWidget(browse_btn)
 
@@ -641,6 +637,7 @@ class LandingWidget(QWidget):
         row.addWidget(arrow)
 
         card.mousePressEvent = lambda _event, i=uid: self._select_util(i)
+        card.mouseDoubleClickEvent = lambda _event, i=uid: self._on_util_double_click(i)
         return card
 
     def _style_util_card(self, card: QFrame, selected: bool):
@@ -678,56 +675,9 @@ class LandingWidget(QWidget):
                     " border: none;")
         self._update_continue_state()
 
-    # ── Action row ────────────────────────────────────────────────────────────
-
-    def _build_action_row(self, outer: QVBoxLayout):
-        row_w = QWidget()
-        row_w.setStyleSheet(f"background: {BG_APP};")
-        row = QHBoxLayout(row_w)
-        row.setContentsMargins(24, 8, 24, 12)
-        row.setSpacing(10)
-        row.addStretch()
-
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setCursor(Qt.PointingHandCursor)
-        cancel_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {TEXT_PRIMARY};
-                border: 1px solid {BORDER};
-                border-radius: 4px;
-                padding: 8px 20px;
-                font-family: 'Segoe UI';
-                font-size: 12px;
-            }}
-            QPushButton:hover {{ border-color: {TEXT_MUTED}; }}
-        """)
-        cancel_btn.clicked.connect(QApplication.quit)
-
-        self._continue_btn = QPushButton("Continue →")
-        self._continue_btn.setCursor(Qt.PointingHandCursor)
-        self._continue_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {KS_RED};
-                color: {TEXT_WHITE};
-                border: none;
-                border-radius: 4px;
-                padding: 8px 24px;
-                font-family: 'Segoe UI';
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{ background: {KS_RED_DARK}; }}
-            QPushButton:disabled {{
-                background: #D1D5DB;
-                color: {TEXT_MUTED};
-            }}
-        """)
-        self._continue_btn.clicked.connect(self._on_continue)
-
-        row.addWidget(cancel_btn)
-        row.addWidget(self._continue_btn)
-        outer.addWidget(row_w)
+    def _on_util_double_click(self, uid: int):
+        self._select_util(uid)
+        self._on_continue()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -818,13 +768,7 @@ class LandingWidget(QWidget):
         self._update_continue_state()
 
     def _update_continue_state(self):
-        if self._mode == "new":
-            name = self._name_edit.text().strip()
-            loc  = self._loc_edit.text().strip()
-            project_ok = bool(name) and bool(loc)
-        else:
-            project_ok = bool(self._open_path)
-        self._continue_btn.setEnabled(project_ok and self._util_id is not None)
+        pass
 
     # ── Continue action ───────────────────────────────────────────────────────
 
@@ -849,6 +793,11 @@ class LandingWidget(QWidget):
                 return
         else:
             case_dir = self._open_path
+            if not case_dir:
+                QMessageBox.warning(
+                    self, "No project selected",
+                    "Please browse to or select an OpenFOAM case folder first.")
+                return
             if not os.path.isfile(os.path.join(case_dir, "system", "controlDict")):
                 QMessageBox.warning(
                     self, "Invalid case",
