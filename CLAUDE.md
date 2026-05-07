@@ -37,8 +37,9 @@ All other imports (`os`, `sys`, `subprocess`, `re`, `argparse`, `glob`, `typing`
 
 **GUI application (recommended):**
 ```bash
-cd /mnt/c/OpenFOAM/03_mesh_session
+source /usr/lib/openfoam/openfoam2506/etc/bashrc
 python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
+# Landing page opens — create or open a project, choose a utility, then Continue →
 ```
 
 **CLI: generate background block mesh from STL bounding box:**
@@ -69,10 +70,13 @@ The GUI is split across multiple files to keep each file focused and testable in
 
 **`openfoam_ui.py`** — PyQt5 `QMainWindow` entry point. Thin shell: builds the header bar, hero strip, tab pills, `QStackedWidget`, `LogDrawer`, and status bar. Owns tab-switching logic and the Open ParaView action. No CFD logic here.
 
+A module-level `qInstallMessageHandler` (installed before `QApplication` is created) silences Qt5's harmless `"Could not parse stylesheet"` warnings. These are false positives emitted by `QFrame` widgets with `border-radius` inside `QScrollArea` hierarchies on Linux/WSL — the styles are applied correctly despite the warning. All other Qt diagnostics are forwarded to `stderr` unchanged.
+
 Key layout (top to bottom, fixed heights except the stack):
-- **Header bar** (52 px, `#1A1A1A`): logo swatch, app name, CWD basename, tab pills, separator, Open ParaView
+- **Header bar** (52 px, `#1A1A1A`): ← Home button (hidden on landing page), logo swatch, app name, CWD basename, tab pills, separator, Open ParaView
+- **Root `QStackedWidget`**: index 0 = `LandingWidget`; index 1 = utility UI (hero + tab stack + log)
 - **Hero strip** (80 px, `#F4F4F4`): eyebrow + title + subtitle per active tab; WORKING DIR badge on the right
-- **QStackedWidget** (stretches): holds `BackgroundMeshWidget` and `SnappyHexWidget`
+- **Tab `QStackedWidget`** (stretches): holds `BackgroundMeshWidget` and `SnappyHexWidget`
 - **LogDrawer**: collapsible/resizable; drag its bottom grip upward to resize; starts expanded at 350 px
 - **Status bar** (24 px, `#1A1A1A`): blinking status dot + text; CWD path
 
@@ -85,6 +89,16 @@ Key layout (top to bottom, fixed heights except the stack):
 - `find_paraview_exe()` — scans `/mnt/c/Program Files/ParaView*/bin/paraview.exe`
 - `run_of_command(cmd, cwd, log_cb)` — streaming `Popen`; merges stderr into stdout; returns exit code
 - `run_foam_cmd(cmd, cwd, log_cb)` — blocking `capture_output=True`; logs stderr only on failure
+
+**`ui_landing.py`** — `LandingWidget(QWidget)` — full-window landing page shown before any utility tab:
+- Placed at index 0 of `MainWindow._root_stack`; emits `continue_clicked(case_dir, util_id)` when Continue is pressed
+- Two modes via segmented control: **New project** (name + location + template + folder preview) and **Open existing** (browse + recents list with × delete)
+- Recents stored at `~/.openfoam_ui_recents.json` (max 10); helpers `_load_recents` / `_save_recents` / `_prepend_recent`
+- `_make_recent_row(entry)` → `QFrame` with objectName `"recent_row"` and scoped `QFrame#recent_row { }` stylesheet (required to avoid Qt5 Linux parse errors — see Qt5 Stylesheet Rules below)
+- `_rebuild_recents_list()` — clears and repopulates the recents scroll area; called on delete and on mode switch
+- `_build_utility_card(body)` — two clickable `QFrame` utility selectors (objectName-scoped) + environment status dots
+- `_style_util_card(card, selected)` — toggles card border/background between unselected and KS_RED selected state
+- New project creation writes stub `controlDict`, `fvSchemes`, `fvSolution` via `_write_stub()`
 
 **`ui_log_drawer.py`** — `LogDrawer(QWidget)`:
 - Collapsible (chevron button) and resizable (drag the 8 px grip at the bottom upward); starts expanded at 350 px
@@ -171,6 +185,11 @@ Key layout (top to bottom, fixed heights except the stack):
 - **CWD management for relative paths**: `generate_snappy_dict_from_config()` temporarily `os.chdir(cwd)` so that `load_geometry_files()` can resolve `constant/` relative paths; CWD is always restored in a `finally` block
 - **SystemExit in threads**: validators in `setup_snappy.py` call `sys.exit()` on bad input. `_do_generate()` catches `SystemExit` and re-raises as `RuntimeError` so worker threads can handle it without killing the process
 - **Do not modify the CLI scripts**: `generateBackgroundMesh.py` and `generateSnappyHexMeshDict.py` are standalone tools; the GUI uses the new Jinja2-based backend (`setup_snappy.py`) independently
+- **Qt5 Stylesheet Rules (Linux/WSL)** — Qt5 on Ubuntu generates `Could not parse stylesheet of object QFrame(...)` warnings in two situations:
+  1. `setFrameShape(QFrame.HLine/VLine)` combined with `setStyleSheet()` on the same `QFrame` — fix: remove `setFrameShape`; use `setFixedHeight(1)` + background-only stylesheet instead
+  2. `QFrame { border: ...; border-radius: ...; }` (bare type selector, no objectName) — fix: always call `setObjectName("name")` and scope the rule as `QFrame#name { ... }`. A single property like `background` only is safe without scoping; adding `border` or `border-radius` requires scoping
+  - `cursor: default;` in `QPushButton:disabled` stylesheets is unsupported on Linux Qt5 — use `setCursor(Qt.ArrowCursor)` via Python API instead
+  - Bare property stylesheets (no type selector) are safe on `QLabel` and `QPushButton` but should be avoided on `QFrame`
 
 ### OpenFOAM Case Layout (`03_mesh_session/`)
 

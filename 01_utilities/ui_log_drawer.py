@@ -29,22 +29,21 @@ from ui_shared import (LOG_BG, LOG_FG, LOG_ERROR, LOG_WARN, LOG_INFO, LOG_CMD,
                         TEXT_MUTED, BORDER)
 
 COLLAPSED_H = 36
-EXPANDED_H  = 350
+EXPANDED_H  = 650
 MAX_H       = 900
 
 
 class _ResizeGrip(QWidget):
     """
-    Thin (8 px) horizontal strip at the very bottom of the LogDrawer.
+    Thin (8 px) horizontal strip at the very top of the LogDrawer.
 
-    Dragging this strip calls drag_cb(delta) where delta is the number of
-    pixels the mouse moved upward since the last event (positive = expanding
-    the drawer, negative = shrinking it).  The callback lives in LogDrawer and
-    performs the actual resize so that all height-constraint logic stays in one
-    place.
+    Dragging this strip calls drag_cb(delta) where delta is positive when the
+    mouse moves downward and negative when it moves upward.  _on_grip_drag
+    subtracts delta from the current height so dragging the upper border
+    upward (negative delta) increases the drawer's height.
 
-    Positioned below the text area so the user grabs from the bottom and drags
-    upward to reveal more log output.
+    Positioned above the header so the user grabs the upper border and drags
+    it upward to reveal more log output.
     """
 
     def __init__(self, drag_cb, parent=None):
@@ -57,7 +56,7 @@ class _ResizeGrip(QWidget):
         self.setStyleSheet(f"""
             QWidget {{
                 background: #2D3748;
-                border-top: 1px solid #374151;
+                border-bottom: 1px solid #374151;
             }}
             QWidget:hover {{ background: #4B5563; }}
         """)
@@ -70,9 +69,10 @@ class _ResizeGrip(QWidget):
 
     def mouseMoveEvent(self, ev):
         if self._dragging:
-            # delta > 0 when mouse moves up  → user is expanding the drawer
-            # delta < 0 when mouse moves down → user is shrinking the drawer
-            delta       = self._last_y - ev.globalPos().y()
+            # delta > 0 when mouse moves down, < 0 when mouse moves up.
+            # _on_grip_drag subtracts this, so dragging the upper border
+            # upward (negative delta) correctly increases the drawer height.
+            delta        = ev.globalPos().y() - self._last_y
             self._last_y = ev.globalPos().y()
             self._drag_cb(delta)
         ev.accept()
@@ -111,6 +111,7 @@ class LogDrawer(QWidget):
         self._expanded    = False
         self._line_count  = 0
         self._blink_state = False
+        self._target_h    = EXPANDED_H   # persists the user's last expanded height
 
         self.setFixedHeight(COLLAPSED_H)
         self.setStyleSheet(f"background: {LOG_BG};")
@@ -127,18 +128,16 @@ class LogDrawer(QWidget):
         self._build()
         self._append_sig.connect(self._on_append)
 
-        # Start in expanded state so the log is immediately visible
-        self._expanded = True
-        self.setFixedHeight(EXPANDED_H)
-        self._text.setVisible(True)
-        self._chevron_btn.setText("▼")
-
     # ── Build ──────────────────────────────────────────────────────────────────
 
     def _build(self):
         main_vbox = QVBoxLayout(self)
         main_vbox.setContentsMargins(0, 0, 0, 0)
         main_vbox.setSpacing(0)
+
+        # ── Resize grip (draggable upper border) ──────────────────────────────
+        self._grip = _ResizeGrip(self._on_grip_drag)
+        main_vbox.addWidget(self._grip)
 
         # ── Header strip (always visible) ─────────────────────────────────────
         hdr = QWidget()
@@ -217,10 +216,6 @@ class LogDrawer(QWidget):
         self._text.setVisible(False)
         main_vbox.addWidget(self._text)
 
-        # ── Resize grip (draggable bottom border) ─────────────────────────────
-        self._grip = _ResizeGrip(self._on_grip_drag)
-        main_vbox.addWidget(self._grip)
-
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def write(self, message: str, tag: str = "") -> None:
@@ -283,14 +278,16 @@ class LogDrawer(QWidget):
         """
         Resize the drawer in response to the user dragging the top grip strip.
 
-        delta is the number of pixels the mouse moved upward since the last
-        event (positive = expanding, negative = shrinking).  setFixedHeight
-        pins both min and max to the same value so the layout shrinks the
-        content stack above the drawer rather than resizing the window.
+        delta is positive when the mouse moves down and negative when it moves
+        up (see _ResizeGrip.mouseMoveEvent).  We subtract it so that dragging
+        the upper border upward (negative delta) increases the drawer height.
+        setFixedHeight pins both min and max to the same value so the layout
+        shrinks the content stack above the drawer rather than the window.
         """
-        new_h = max(COLLAPSED_H, min(MAX_H, self.height() + delta))
+        new_h = max(COLLAPSED_H, min(MAX_H, self.height() - delta))
         self.setFixedHeight(new_h)
         if new_h > COLLAPSED_H:
+            self._target_h = new_h   # remember for chevron re-expand
             if not self._expanded:
                 self._expanded = True
                 self._text.setVisible(True)
@@ -331,7 +328,7 @@ class LogDrawer(QWidget):
             self.setMaximumHeight(MAX_H)
             self._anim.stop()
             self._anim.setStartValue(self.height())
-            self._anim.setEndValue(EXPANDED_H)
+            self._anim.setEndValue(self._target_h)
             self._anim.start()
 
     def _on_anim_finished(self):

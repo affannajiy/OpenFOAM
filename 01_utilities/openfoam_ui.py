@@ -29,7 +29,21 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                               QHBoxLayout, QLabel, QPushButton, QFrame,
                               QStackedWidget, QSizePolicy)
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, qInstallMessageHandler
+
+
+# Qt5 on Linux/WSL emits "Could not parse stylesheet of object QFrame(...)" to
+# stderr for QFrame widgets whose QSS uses border-radius inside a QScrollArea
+# hierarchy — even though the styles are applied correctly.  The handler below
+# silences those specific messages while forwarding all other Qt diagnostics
+# (warnings, critical errors) to stderr as normal.  Installed at module load
+# time so it is active before QApplication is created.
+def _qt_msg_handler(msg_type, context, message):
+    if "Could not parse stylesheet" not in message:
+        sys.stderr.write(message + "\n")
+
+
+qInstallMessageHandler(_qt_msg_handler)
 
 from ui_shared import (
     KS_RED, KS_BLACK, BG_APP, TEXT_PRIMARY, TEXT_MUTED, TEXT_WHITE,
@@ -39,6 +53,7 @@ from ui_shared import (
 from ui_log_drawer import LogDrawer
 from ui_background_mesh import BackgroundMeshWidget
 from ui_snappy_hex import SnappyHexWidget
+from ui_landing import LandingWidget
 
 
 # ── Tab metadata ───────────────────────────────────────────────────────────────
@@ -82,7 +97,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("OpenFOAM Mesh Utilities")
         self.resize(1100, 760)
-        self._tab_idx = 0   # index of the currently active tab (0 or 1)
+        self._tab_idx = 0
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -92,10 +107,30 @@ class MainWindow(QMainWindow):
 
         self._log = LogDrawer()
 
+        # Header is always visible (includes ← Home button)
         self._build_header(root)
-        self._build_hero(root)
-        self._build_stack(root)
-        root.addWidget(self._log)
+
+        # Root stack: index 0 = landing, index 1 = utility UI
+        self._root_stack = QStackedWidget()
+        root.addWidget(self._root_stack, 1)
+
+        # Index 0 — Landing page
+        self._landing = LandingWidget()
+        self._landing.continue_clicked.connect(self.show_utility)
+        self._root_stack.addWidget(self._landing)
+
+        # Index 1 — Utility UI (hero + tab stack + log)
+        utility_widget = QWidget()
+        utility_widget.setStyleSheet(f"background: {BG_APP};")
+        util_layout = QVBoxLayout(utility_widget)
+        util_layout.setContentsMargins(0, 0, 0, 0)
+        util_layout.setSpacing(0)
+        self._build_hero(util_layout)
+        self._build_stack(util_layout)
+        util_layout.addWidget(self._log)
+        self._root_stack.addWidget(utility_widget)
+
+        # Status bar is always visible
         self._build_statusbar(root)
 
         self._log.status_changed.connect(self._on_status_changed)
@@ -106,6 +141,11 @@ class MainWindow(QMainWindow):
 
         self._refresh_cwd()
         self._switch_tab(0)
+
+        # Start on landing page
+        self._root_stack.setCurrentIndex(0)
+        self._home_btn.setVisible(False)
+
         self._center()
 
     # ── Header bar ─────────────────────────────────────────────────────────────
@@ -117,6 +157,24 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(hdr)
         row.setContentsMargins(20, 0, 20, 0)
         row.setSpacing(10)
+
+        # ← Home button (only visible when showing the utility UI)
+        self._home_btn = QPushButton("← Home")
+        self._home_btn.setCursor(Qt.PointingHandCursor)
+        self._home_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: #9CA3AF;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-family: 'Segoe UI';
+                font-size: 11px;
+            }}
+            QPushButton:hover {{ color: {TEXT_WHITE}; }}
+        """)
+        self._home_btn.clicked.connect(self.show_landing)
+        row.addWidget(self._home_btn)
 
         logo = QFrame()
         logo.setFixedSize(20, 20)
@@ -151,9 +209,8 @@ class MainWindow(QMainWindow):
 
         # Small visual separator
         sep_line = QFrame()
-        sep_line.setFrameShape(QFrame.VLine)
         sep_line.setFixedWidth(1)
-        sep_line.setStyleSheet("background: #374151; border: none;")
+        sep_line.setStyleSheet("QFrame { background: #374151; }")
         row.addSpacing(8)
         row.addWidget(sep_line)
         row.addSpacing(8)
@@ -280,6 +337,25 @@ class MainWindow(QMainWindow):
         row.addWidget(self._sb_cwd)
 
         root.addWidget(sb)
+
+    # ── Landing / utility navigation ───────────────────────────────────────────
+
+    def show_landing(self):
+        """Return to the landing page."""
+        self._root_stack.setCurrentIndex(0)
+        self._home_btn.setVisible(False)
+        self._landing.refresh_recents()
+
+    def show_utility(self, case_dir: str, util_id: int):
+        """Switch to the utility UI at the given tab and case directory."""
+        try:
+            os.chdir(case_dir)
+        except Exception:
+            pass
+        self._root_stack.setCurrentIndex(1)
+        self._home_btn.setVisible(True)
+        self._switch_tab(util_id)
+        self._refresh_cwd()
 
     # ── Tab switching ──────────────────────────────────────────────────────────
 

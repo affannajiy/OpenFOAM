@@ -4,7 +4,7 @@ Python utilities for automating snappyHexMesh setup in ESI OpenFOAM v2506, with 
 
 ## Prerequisites
 
-- WSL/Ubuntu with OpenFOAM installed (see [`documentation/openfoam-setup-guide.md`](documentation/openfoam-setup-guide.md))
+- WSL/Ubuntu with OpenFOAM installed (see [`documentation/OpenFOAMSetup.md`](documentation/OpenFOAMSetup.md))
 - OpenFOAM environment sourced: `source /usr/lib/openfoam/openfoam2506/etc/bashrc`
 - Python dependencies installed (see [Installation](#installation))
 - Scripts must be launched from inside an OpenFOAM case directory
@@ -32,12 +32,23 @@ pip3 install -r 01_utilities/requirements.txt --break-system-packages
 
 ## GUI Application (Recommended)
 
-Launch from an OpenFOAM case directory:
+Launch from WSL (the working directory does not need to be a case directory — the landing page lets you choose):
 
 ```bash
-cd /mnt/c/OpenFOAM/03_mesh_session
+source /usr/lib/openfoam/openfoam2506/etc/bashrc
 python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
 ```
+
+### Landing Page
+
+On first launch the GUI shows a landing page where you can:
+
+- **New project** — enter a name and location; the tool creates the folder structure (`constant/triSurface/`, `system/`, `0/`) and stub dictionaries (`controlDict`, `fvSchemes`, `fvSolution`).
+- **Open existing** — browse to or pick from the recent-projects list; the tool validates that `system/controlDict` exists.
+
+Then choose a utility (Background Mesh or SnappyHexMesh Dict) and click **Continue →** to open the main workspace.  The ← Home button in the header bar returns to the landing page at any time.
+
+Recent projects are stored in `~/.openfoam_ui_recents.json` (max 10 entries; each has a × button to remove it).
 
 The GUI is a 1100×760 PyQt5 window with two tabs:
 
@@ -115,12 +126,14 @@ Requires `system/controlDict` and a `constant/` directory to exist in the case r
 ## Typical Workflow
 
 ```bash
-# 1. Start in an OpenFOAM case directory with the environment sourced
-cd /mnt/c/OpenFOAM/03_mesh_session
+# 1. Source the OpenFOAM environment
 source /usr/lib/openfoam/openfoam2506/etc/bashrc
 
-# 2. Generate background mesh
+# 2. Launch the GUI (landing page opens first)
 python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
+# Landing page: create a new project or open an existing one, choose utility, Continue →
+
+# 3. Generate background mesh
 # Tab 1: select STL, set DX/DY/DZ, click Generate
 
 # 3. Extract feature edges (for explicit snapping)
@@ -161,7 +174,7 @@ C:\OpenFOAM\
 │   ├── system\                 # Dictionaries (blockMeshDict, snappyHexMeshDict, …)
 │   └── programOutputs\         # Captured log files
 ├── documentation\
-│   └── openfoam-setup-guide.md # WSL + OpenFOAM installation guide
+│   └── OpenFOAMSetup.md        # Setup, deployment, and troubleshooting guide
 └── CLAUDE.md                   # AI assistant guidance
 ```
 
@@ -171,3 +184,4 @@ C:\OpenFOAM\
 - Target OpenFOAM version: **2506** (also compatible with 2312)
 - ParaView is detected automatically by scanning `C:\Program Files\ParaView*\bin\paraview.exe` (newest version wins)
 - All OpenFOAM executables must be run inside WSL — they do not exist in Windows CMD/PowerShell
+- Qt5 on Linux/WSL prints harmless `Could not parse stylesheet` messages for some `QFrame` widgets; a `qInstallMessageHandler` in `openfoam_ui.py` silences these so only genuine Qt warnings appear on stderr

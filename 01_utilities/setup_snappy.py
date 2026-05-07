@@ -1,7 +1,35 @@
 #!/usr/bin/env python3
 """
-snappyHexMeshDict Generator
-Parses snappy_inputs.json and generates OpenFOAM snappyHexMeshDict file.
+setup_snappy.py — Core config merging, validation, and Jinja2 template rendering.
+
+This module has two separate entry points:
+
+  GUI path  — generate_snappy_dict_from_config(config, sys_dir, log_cb, cwd)
+              Called by _GenerateWorker in ui_snappy_hex.py.  Receives a merged
+              dict that the GUI built from defaults.json + widget values and
+              renders it directly via Jinja2 (no snappy_inputs.json on disk).
+
+  CLI path  — main()
+              Reads snappy_inputs.json from the current directory, validates it
+              fully (including backgroundMesh), then writes both
+              system/snappyHexMeshDict and system/blockMeshDict.
+
+Key functions
+-------------
+deep_merge()                       recursive dict merge; lists are replaced, not extended
+load_snappy_config()               merge defaults.json with snappy_inputs.json (CLI)
+process_geometry()                 validate geometry section, build geometry_map
+resolve_surface_handling()         build surface refinement list for the template
+resolve_volume_refinement()        build volume refinement list for the template
+render_template()                  Jinja2 render of snappyHexMeshDict.template
+generate_snappy_dict_from_config() GUI entry point; temporarily chdir for relative paths
+_do_generate()                     inner core; converts sys.exit() to RuntimeError
+
+Important: sys.exit() in threads
+---------------------------------
+Validators call sys.exit() on bad input.  _do_generate() wraps all of them in a
+try/except SystemExit and re-raises as RuntimeError so QThread worker subclasses
+can handle the error without killing the entire application process.
 """
 
 import json
@@ -769,6 +797,22 @@ def _apply_facezone_fields(resolved, clean_name, has_cell_zone):
 
 
 def resolve_surface_handling(config, geometry_map, extract_from_names, auto_levels_map=None):
+    """
+    Build the ordered list of surface refinement dicts consumed by the Jinja2 template.
+
+    The candidate set is assembled from three sources (in priority order):
+      1. surfaceHandling.selectedParts — explicit user selection
+      2. AUTO_-encoded geometry files  — added automatically when is_auto flag is set
+      3. Encoded file names           — added when extract_from_names=True and has_encoding
+
+    For each candidate the resolved dict starts from __defaults__, is then overridden
+    by any encoded information from the filename, and finally overridden again by any
+    explicit entry in surfaceHandling.surfaces.  Explicit always wins.
+
+    Returns a list of resolved dicts, one per candidate, in the order they appear
+    in candidate_set.  The list is passed directly as `surface_refinements` to
+    render_template().
+    """
     surf_section = config.get("surfaceHandling")
     if not surf_section:
         return []
@@ -841,6 +885,15 @@ def resolve_surface_handling(config, geometry_map, extract_from_names, auto_leve
 
 
 def resolve_volume_refinement(config, geometry_map, extract_from_names, auto_levels_map=None):
+    """
+    Build the ordered list of volume refinement dicts consumed by the Jinja2 template.
+
+    Mirror of resolve_surface_handling() but for volumeRefinement.  Each resolved
+    dict contains: name, mode ('inside'/'outside'/'distance'), level (scalar), and
+    levels (distance-mode pairs list).  Only one of level / levels will be non-None.
+
+    Distance mode must be provided explicitly — it cannot come from encoded filenames.
+    """
     vol_section = config.get("volumeRefinement")
     if not vol_section:
         return []
@@ -916,6 +969,14 @@ def get_template_dir():
 
 
 def render_template(config, geometry, surface_refinements, volume_refinements, template_dir, openfoam_version="2506"):
+    """
+    Render snappyHexMeshDict.template with a Jinja2 Environment.
+
+    The template receives the full config dict broken out into named variables
+    (castellatedMeshControls, snapControls, etc.) plus the resolved geometry,
+    surface, and volume refinement lists.  The template itself handles all the
+    OpenFOAM dictionary syntax — this function only passes the context.
+    """
     env = Environment(loader=FileSystemLoader(template_dir))
 
     try:
@@ -962,6 +1023,21 @@ def write_snappyhexmeshdict(rendered_content, output_dir="system"):
 
 
 def compute_block_mesh_params(bm_config):
+    """
+    Load the reference STL, compute a padded bounding box, and snap cell counts.
+
+    Steps:
+      1. Walk constant/ to find the referenceGeometry file.
+      2. Load it with trimesh and read the min/max bounds.
+      3. Expand each axis by enlargementFactor around the centre.
+      4. For each axis: n = ceil(extent / delta); snap max = min + n*delta so
+         the grid is an exact multiple of the cell size.
+
+    Returns a dict with xMin/xMax/yMin/yMax/zMin/zMax/nx/ny/nz suitable for
+    render_block_mesh_template().
+
+    Requires trimesh — exits with an error message if it is not installed.
+    """
     if trimesh is None:
         sys.exit(
             "Error: 'trimesh' library is required for backgroundMesh generation.\n"
@@ -1038,6 +1114,7 @@ def write_blockmeshdict(rendered_content, output_dir="system"):
 
 
 def _check_dependencies():
+    """Check for required and optional packages; print helpful install hints and exit if required ones are missing."""
     missing_required = []
     missing_optional = []
 

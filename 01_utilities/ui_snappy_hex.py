@@ -83,6 +83,13 @@ def _load_defaults() -> dict:
 # ── Worker threads ──────────────────────────────────────────────────────────────
 
 class _GenerateWorker(QThread):
+    """
+    Worker thread that calls generate_snappy_dict_from_config() and streams its log output.
+
+    Receives a fully-merged config dict (built by _collect_data() on the GUI thread)
+    so it never touches any Qt widgets.  Catches both SystemExit (from validators that
+    call sys.exit()) and generic Exception so the GUI is always re-enabled after the run.
+    """
     log_line       = pyqtSignal(str, str)
     status_changed = pyqtSignal(str, str)
 
@@ -109,6 +116,14 @@ class _GenerateWorker(QThread):
 
 
 class _RunSnappyWorker(QThread):
+    """
+    Worker thread that removes stale time directories, runs snappyHexMesh, and refreshes the .foam file.
+
+    Time directories (named with digits, e.g. "1", "2") are removed first so that
+    a fresh snappy run starts from a clean state and ParaView does not show stale data.
+    After a successful run the .foam sentinel file is re-created so ParaView can find
+    the new mesh without manual action.
+    """
     log_line       = pyqtSignal(str, str)
     status_changed = pyqtSignal(str, str)
 
@@ -705,9 +720,10 @@ class SnappyHexWidget(QWidget):
             f"color: {TEXT_MUTED}; font-size: 14px; background: transparent;")
         body.addWidget(self._time_dirs_lbl)
 
-        sep1 = QFrame(); sep1.setFrameShape(QFrame.HLine)
-        sep1.setStyleSheet(f"background: {BORDER_SOFT}; border: none;")
-        sep1.setFixedHeight(1); body.addWidget(sep1)
+        sep1 = QFrame()
+        sep1.setFixedHeight(1)
+        sep1.setStyleSheet(f"QFrame {{ background: {BORDER_SOFT}; }}")
+        body.addWidget(sep1)
 
         self._dict_banner = QLabel("")
         self._dict_banner.setStyleSheet("""
@@ -728,9 +744,10 @@ class SnappyHexWidget(QWidget):
         gen_row.addStretch(); gen_row.addWidget(self._gen_btn)
         body.addLayout(gen_row)
 
-        sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
-        sep2.setStyleSheet(f"background: {BORDER_SOFT}; border: none;")
-        sep2.setFixedHeight(1); body.addWidget(sep2)
+        sep2 = QFrame()
+        sep2.setFixedHeight(1)
+        sep2.setStyleSheet(f"QFrame {{ background: {BORDER_SOFT}; }}")
+        body.addWidget(sep2)
 
         self._snappy_banner = QLabel("")
         self._snappy_banner.setStyleSheet("""

@@ -312,9 +312,8 @@ class PlusMinusSpinBox(QWidget):
         self._minus.clicked.connect(lambda: self._step(-1))
 
         sep_l = QFrame()
-        sep_l.setFrameShape(QFrame.VLine)
-        sep_l.setStyleSheet(f"background: {BORDER}; border: none;")
         sep_l.setFixedWidth(1)
+        sep_l.setStyleSheet(f"QFrame {{ background: {BORDER}; }}")
 
         self._edit = QLineEdit("0")
         self._edit.setAlignment(Qt.AlignCenter)
@@ -325,9 +324,8 @@ class PlusMinusSpinBox(QWidget):
         self._edit.editingFinished.connect(self._on_edit_done)
 
         sep_r = QFrame()
-        sep_r.setFrameShape(QFrame.VLine)
-        sep_r.setStyleSheet(f"background: {BORDER}; border: none;")
         sep_r.setFixedWidth(1)
+        sep_r.setStyleSheet(f"QFrame {{ background: {BORDER}; }}")
 
         self._plus = QPushButton("+")
         self._plus.setFixedWidth(self._BTN_W)
@@ -438,9 +436,8 @@ def build_card(section_label: str, title: str):
     vbox.addWidget(hdr)
 
     sep = QFrame()
-    sep.setFrameShape(QFrame.HLine)
-    sep.setStyleSheet(f"background: {BORDER_SOFT}; border: none; max-height: 1px;")
     sep.setFixedHeight(1)
+    sep.setStyleSheet(f"QFrame {{ background: {BORDER_SOFT}; }}")
     vbox.addWidget(sep)
 
     body_w = QWidget()

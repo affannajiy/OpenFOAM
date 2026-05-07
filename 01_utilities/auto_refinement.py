@@ -45,6 +45,19 @@ def _check_deps(context):
 # ---------------------------------------------------------------------------
 
 def _compute_char_length(mesh, gap_multiplier):
+    """
+    Estimate a characteristic length for the geometry.
+
+    For closed (watertight) meshes:
+      - If sphericity > 0.6 (near-sphere): use cube-root of volume.
+      - Otherwise (thin/elongated bodies): use gap_multiplier × (V / A),
+        which approximates the narrowest gap dimension.
+    For open meshes (non-watertight):
+      - Use min(sqrt(area), max_edge_length) — a conservative estimate
+        since volume-based measures are undefined.
+
+    Returns (char_length, is_closed, sphericity).  sphericity is None for open meshes.
+    """
     is_closed = mesh.is_watertight
     area = mesh.area
     sphericity = None
@@ -63,16 +76,29 @@ def _compute_char_length(mesh, gap_multiplier):
 
 
 def _level_from_size(base_grid_size, target_size):
+    """Convert a physical target cell size into a snappyHexMesh refinement level.
+
+    Each refinement level halves the cell size, so:
+      level = ceil(log2(base_grid_size / target_size))
+    A level of 0 means no refinement; the base grid cell is already small enough.
+    """
     if target_size < 1e-12:
         return 0
     return max(0, int(np.ceil(np.log2(base_grid_size / target_size))))
 
 
 def _surface_min_level(char_length, surface_resolution_cells, base_grid_size):
+    """Minimum refinement level so that surface_resolution_cells cells fit across char_length."""
     return _level_from_size(base_grid_size, char_length / surface_resolution_cells)
 
 
 def _surface_min_level_from_bbox(mesh, min_cells_across, base_grid_size):
+    """
+    Bounding-box floor for surface_min: ensure at least min_cells_across cells fit
+    across the median bounding-box extent.  This prevents under-refinement of
+    geometries whose char_length path would suggest too coarse a mesh.
+    Returns (level, median_bb).
+    """
     extents = mesh.bounding_box.extents
     median_bb = float(np.median(extents))
     if min_cells_across <= 0 or median_bb < 1e-12:
@@ -82,6 +108,19 @@ def _surface_min_level_from_bbox(mesh, min_cells_across, base_grid_size):
 
 def _surface_max_level_from_features(mesh, feature_angle_rad, feature_resolution_cells,
                                      base_grid_size, char_length, noise_ratio):
+    """
+    Estimate surface_max from feature-edge curve lengths.
+
+    Feature edges are those where adjacent faces meet at more than feature_angle_rad.
+    Edges belonging to branching vertices (degree != 2) are given virtual endpoints
+    so each feature curve becomes its own connected component via union-find.
+    Short curves below char_length/noise_ratio are discarded as mesh noise.
+    The 10th-percentile curve length is used (conservative — targets the smallest
+    real feature, not the median).
+
+    Returns (level, L_feature, n_curves_total, n_curves_used).
+    All four are None/0 when no feature edges exist.
+    """
     if len(mesh.face_adjacency_angles) == 0:
         return None, None, 0, 0
 
@@ -144,6 +183,16 @@ def _surface_max_level_from_features(mesh, feature_angle_rad, feature_resolution
 
 def _surface_max_level_from_curvature(mesh, feature_angle_rad, feature_resolution_cells,
                                       base_grid_size):
+    """
+    Estimate surface_max from Gaussian curvature at smooth (non-feature) vertices.
+
+    For smooth vertices (not on feature edges), compute the Voronoi-area-weighted
+    Gaussian curvature K.  The minimum radius of curvature R = 1/sqrt(K) at the
+    10th percentile (tightest curvature) determines the required refinement level.
+    Feature vertices are excluded because their curvature estimate is unreliable.
+
+    Returns (level, R_min).  Both are None when no smooth vertices have positive K.
+    """
     if len(mesh.face_adjacency_angles) == 0:
         return None, None
 
@@ -181,6 +230,30 @@ def derive_snappy_levels(stl_path, base_grid_size, surface_resolution_cells,
                          feature_resolution_cells=2.0, volume_resolution_cells=10.0,
                          gap_multiplier=3.0, feature_angle=30.0,
                          noise_ratio=20.0, max_level_gap=2, min_cells_across=10):
+    """
+    Core auto-refinement computation for one STL file.
+
+    Returns a dict with keys:
+      status          'success' or 'error'
+      surface_min     int — minimum snappyHexMesh refinement level for the surface
+      surface_max     int — maximum refinement level (capped by max_level_gap above min)
+      volume_level    int — level for any associated volume refinement region
+      is_watertight   bool
+      diagnostics     dict with intermediate values for debugging / log output
+
+    Parameters
+    ----------
+    stl_path                path to the STL file (found under constant/)
+    base_grid_size          smallest background mesh cell size (metres)
+    surface_resolution_cells  cells that should fit across char_length for surface_min
+    feature_resolution_cells  cells per feature-edge segment for surface_max
+    volume_resolution_cells   cells per char_length for volume_level
+    gap_multiplier          V/A gap estimator multiplier for thin-body char_length
+    feature_angle           angle threshold (degrees) that defines a feature edge
+    noise_ratio             curves shorter than char_length/noise_ratio are discarded
+    max_level_gap           maximum allowed difference between surface_max and surface_min
+    min_cells_across        minimum cells across the median bounding-box extent
+    """
     _check_deps("auto-refinement level computation")
 
     try:
