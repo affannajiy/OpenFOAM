@@ -47,7 +47,8 @@ def run_surface_check(stl_filename, output_file):
 #---------------------------------------------------------------------------------
 def extract_bounding_box_info(output):
     # Use regular expression to extract bounding box information
-    pattern = re.compile(r'Bounding Box : \((-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\) \((-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\)')
+    # x1, y1, z1, x2, y2, z2, 6 values because it is a 3D bounding box which has 6 faces
+    pattern = re.compile(r'Bounding Box : \((-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\) \((-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\)') 
     match = pattern.search(output)
     if match:
         x1, y1, z1, x2, y2, z2 = map(float, match.groups())
