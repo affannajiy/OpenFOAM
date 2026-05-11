@@ -18,12 +18,12 @@ FoamFile
 
 1
 (
-    geom
+    defaultFaces
     {
-        type            wall;
-        inGroups        1(wall);
-        nFaces          9600;
-        startFace       107172;
+        type            empty;
+        inGroups        1(empty);
+        nFaces          1779;
+        startFace       13260;
     }
 )
 

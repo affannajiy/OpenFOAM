@@ -57,13 +57,9 @@ castellatedMeshControls
     }
     refinementSurfaces
     {
-        geom
-        {
-            level           (0 1);
-        }
         inner-cylinder
         {
-            level           (1 2);
+            level           (0 1);
             faceZone        inner-cylinder;
             faceType        internal;
         }
@@ -82,8 +78,8 @@ snapControls
     nSolveIter              30;
     nRelaxIter              5;
     nFeatureSnapIter        10;
-    implicitFeatureSnap     false;
-    explicitFeatureSnap     true;
+    implicitFeatureSnap     true;
+    explicitFeatureSnap     false;
     multiRegionFeatureSnap  false;
 }
 

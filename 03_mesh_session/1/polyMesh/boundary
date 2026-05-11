@@ -16,35 +16,28 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-4
+3
 (
     defaultFaces
     {
         type            empty;
         inGroups        1(empty);
-        nFaces          0;
-        startFace       107172;
-    }
-    geom
-    {
-        type            wall;
-        inGroups        1(wall);
-        nFaces          9600;
-        startFace       107172;
+        nFaces          1779;
+        startFace       13260;
     }
     inner-cylinder
     {
         type            wall;
         inGroups        1(wall);
         nFaces          0;
-        startFace       116772;
+        startFace       15039;
     }
     inner-cylinder_slave
     {
         type            wall;
         inGroups        1(wall);
         nFaces          0;
-        startFace       116772;
+        startFace       15039;
     }
 )
 
