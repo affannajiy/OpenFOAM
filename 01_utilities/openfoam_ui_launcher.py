@@ -326,26 +326,7 @@ def main():
         splash.close()
         sys.exit(1)
 
-    # Minimize to taskbar while the GUI runs; close automatically when it exits
-    splash.set_status('OpenFOAM Mesh Utilities is running…')
-    splash.root.title('OpenFOAM Mesh Utilities — Running')
-    splash.root.protocol('WM_DELETE_WINDOW', splash.root.destroy)
-    splash.root.iconify()
-
-    def _poll():
-        if proc.poll() is not None:
-            try:
-                splash.root.destroy()
-            except Exception:
-                pass
-        else:
-            try:
-                splash.root.after(1000, _poll)
-            except Exception:
-                pass
-
-    splash.root.after(1000, _poll)
-    splash.root.mainloop()
+    splash.close()
 
 
 if __name__ == '__main__':

@@ -68,7 +68,7 @@ except Exception as _imp_exc:
 
 _DEFAULTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "defaults.json")
 _GEOM_UNITS = ["mm", "m", "cm", "um", "in", "ft"]
-_SURF_TYPES = ["None", "Boundary", "FaceZone", "FaceZone+CellZone", "Boundary+CellZone"]
+_SURF_TYPES = ["None", "Boundary", "FaceZone"]
 _VOL_DIRS   = ["None", "Inside", "Outside"]
 
 
@@ -397,7 +397,8 @@ class SnappyHexWidget(QWidget):
             return l
 
         hdr_row.addWidget(_hdr("FILE"))
-        hdr_row.addWidget(_hdr("SURFACE TYPE", 160))
+        hdr_row.addWidget(_hdr("SURFACE TYPE", 120))
+        hdr_row.addWidget(_hdr("CELL ZONE", 70))
         hdr_row.addWidget(_hdr("S.MIN", 60))
         hdr_row.addWidget(_hdr("S.MAX", 60))
         hdr_row.addWidget(_hdr("VOL DIR", 94))
@@ -422,8 +423,21 @@ class SnappyHexWidget(QWidget):
             surf_type_combo = QComboBox()
             surf_type_combo.addItems(_SURF_TYPES)
             surf_type_combo.setStyleSheet(STYLE_COMBO)
-            surf_type_combo.setFixedWidth(160)
+            surf_type_combo.setFixedWidth(120)
             row_layout.addWidget(surf_type_combo)
+
+            cz_wrapper = QWidget()
+            cz_wrapper.setFixedWidth(70)
+            cz_wrapper.setStyleSheet(f"background: {row_bg};")
+            cz_wlayout = QHBoxLayout(cz_wrapper)
+            cz_wlayout.setContentsMargins(0, 0, 0, 0)
+            cz_wlayout.setAlignment(Qt.AlignCenter)
+            cell_zone_cb = QCheckBox()
+            cell_zone_cb.setStyleSheet(STYLE_CHECKBOX)
+            cell_zone_cb.setEnabled(False)
+            cell_zone_cb.setToolTip("Add cell zone (only for FaceZone surface type)")
+            cz_wlayout.addWidget(cell_zone_cb)
+            row_layout.addWidget(cz_wrapper)
 
             surf_min_sp = PlusMinusSpinBox()
             surf_min_sp.setRange(0, 20)
@@ -450,14 +464,22 @@ class SnappyHexWidget(QWidget):
 
             self._file_table_layout.addWidget(row_w)
 
+            def _update_cz(text, cb=cell_zone_cb):
+                enabled = (text == "FaceZone")
+                cb.setEnabled(enabled)
+                if not enabled:
+                    cb.setChecked(False)
+
             widgets = {
                 "surf_type_combo": surf_type_combo,
+                "cell_zone_cb":    cell_zone_cb,
                 "surf_min_sp":     surf_min_sp,
                 "surf_max_sp":     surf_max_sp,
                 "vol_dir_combo":   vol_dir_combo,
                 "vol_level_sp":    vol_level_sp,
             }
             self._file_rows.append((fname, widgets))
+            surf_type_combo.currentTextChanged.connect(_update_cz)
             surf_type_combo.currentTextChanged.connect(self._refresh_layer_patches)
 
     # ── Standard shapes ──────────────────────────────────────────────────────────
@@ -595,7 +617,7 @@ class SnappyHexWidget(QWidget):
         loc_row = QHBoxLayout()
         self._loc_x_ed = QLineEdit("0.0")
         self._loc_y_ed = QLineEdit("0.0")
-        self._loc_z_ed = QLineEdit("0.5")
+        self._loc_z_ed = QLineEdit("0.0")
         for ed, ph in [(self._loc_x_ed, "x"), (self._loc_y_ed, "y"), (self._loc_z_ed, "z")]:
             ed.setPlaceholderText(ph); ed.setStyleSheet(STYLE_ENTRY); ed.setFixedWidth(100)
         loc_row.addWidget(self._loc_x_ed)
@@ -878,6 +900,7 @@ class SnappyHexWidget(QWidget):
 
             if surf_text != "None":
                 surf_selected.append(stem)
+                cell_zone = widgets["cell_zone_cb"].isChecked()
                 entry: dict = {"refinementLevels": [
                     widgets["surf_min_sp"].value(),
                     widgets["surf_max_sp"].value(),
@@ -886,12 +909,8 @@ class SnappyHexWidget(QWidget):
                     entry["type"] = "boundary"
                 elif surf_text == "FaceZone":
                     entry["type"] = "faceZone"
-                elif surf_text == "FaceZone+CellZone":
-                    entry["type"] = "faceZone"
-                    entry["cellZoneInside"] = "inside"
-                elif surf_text == "Boundary+CellZone":
-                    entry["type"] = "boundary"
-                    entry["cellZoneInside"] = "inside"
+                    if cell_zone:
+                        entry["cellZoneInside"] = "inside"
                 surfaces_dict[stem] = entry
 
             if vol_text != "None":

@@ -64,9 +64,14 @@ snappyHexMesh -overwrite
 
 The project has two layers: Python tooling (`01_utilities/`) and an example OpenFOAM case (`03_mesh_session/`).
 
+All Python source (`*.py`), `templates/`, `defaults.json`, `requirements.txt`, and `OpenFOAM_UI.exe` live directly in `01_utilities/` — this folder is the distribution zip.
+- **`_deploy/`** — PyInstaller build scripts (`build_exe.bat`, `openfoam_ui_launcher.spec`, `version_info.txt`) and their build artefacts (`build/`, `dist/`); not included in the distribution zip
+
 ### Python Tooling (`01_utilities/`)
 
 The GUI is split across multiple files to keep each file focused and testable in isolation.
+
+**`openfoam_ui_launcher.py`** — Windows-only `.exe` entry point (built with PyInstaller via `openfoam_ui_launcher.spec`). Stdlib only (`tkinter`, `subprocess`, `sys`, `os`, `time`). Shows a dark branded splash window, runs six pre-flight checks (WSL reachable, WSLg display, OpenFOAM bashrc, python3, required packages, `openfoam_ui.py` present), then launches `openfoam_ui.py` inside WSL via `subprocess.Popen` and immediately closes the splash. Required packages checked: `PyQt5`, `numpy`, `jinja2`, `trimesh`. If check 3 finds OF v2312 but not v2506, it surfaces a version-mismatch error with specific install instructions. The `.exe` is a thin launcher only — all application logic runs in WSL. Do not rebuild the `.exe` unless `openfoam_ui_launcher.py` itself changes; edits to any other `.py` file take effect immediately on the next launch.
 
 **`openfoam_ui.py`** — PyQt5 `QMainWindow` entry point. Thin shell: builds the header bar, hero strip, tab pills, `QStackedWidget`, `LogDrawer`, and status bar. Owns tab-switching logic and the Open ParaView action. No CFD logic here.
 
@@ -81,12 +86,14 @@ Key layout (top to bottom, fixed heights except the stack):
 - **Status bar** (24 px, `#1A1A1A`): blinking status dot + text; CWD path
 
 **`ui_shared.py`** — Colour tokens, style-sheet constants, and shared helpers:
-- Colour tokens: `KS_RED`, `BG_APP`, `BG_CARD`, `LOG_BG`, etc.
-- Style sheets: `STYLE_BTN_PRIMARY`, `STYLE_BTN_GHOST`, `STYLE_ENTRY`, `STYLE_SPINBOX`, `STYLE_COMBO`, `STYLE_CHECKBOX`, `STYLE_SCROLL`
+- Colour tokens: `KS_RED`, `KS_RED_DARK`, `KS_RED_LT`, `KS_BLACK`, `BG_APP`, `BG_CARD`, `BG_SUBTLE`, `LOG_BG`, etc.
+- Style sheets: `STYLE_BTN_PRIMARY`, `STYLE_BTN_GHOST`, `STYLE_BTN_SMALL_GHOST`, `STYLE_BTN_SMALL_RED`, `STYLE_ENTRY`, `STYLE_ENTRY_MONO`, `STYLE_SPINBOX`, `STYLE_COMBO`, `STYLE_CHECKBOX`, `STYLE_SCROLL`
+- `PlusMinusSpinBox(QWidget)` — custom integer spin box with explicit − and + buttons; drop-in QSpinBox replacement exposing `value()`, `setValue(int)`, `setRange(int, int)`, `setFixedWidth(int)`, and `valueChanged` signal; used by all level spinboxes in both tab widgets
 - `build_card(section_label, title)` → `(QFrame, QVBoxLayout)` — standard white card with FAFAFA header
 - `positive_float(value)` — returns `float` if strictly positive, else `None`
 - `get_stl_zone_names(path)` — parses ASCII STL `solid` names
 - `find_paraview_exe()` — scans `/mnt/c/Program Files/ParaView*/bin/paraview.exe`
+- `to_wsl_path(p)` — converts Windows drive-letter paths (e.g. `C:\foo`) to WSL `/mnt/` equivalents; called on any path returned by `QFileDialog` which may use Windows format under WSLg
 - `run_of_command(cmd, cwd, log_cb)` — streaming `Popen`; merges stderr into stdout; returns exit code
 - `run_foam_cmd(cmd, cwd, log_cb)` — blocking `capture_output=True`; logs stderr only on failure
 
@@ -112,29 +119,41 @@ Key layout (top to bottom, fixed heights except the stack):
 - Card B: DX / DY / DZ grid resolution inputs
 - Overwrite banner: warns when `system/blockMeshDict`, log files, or `constant/polyMesh/` will be replaced
 - Cancel button: terminates a running worker **and** clears all input fields
-- `_BgMeshWorker(QThread)`: runs `surfaceCheck` → parses bbox → writes `blockMeshDict` → `blockMesh` → removes stale `.foam` files → creates `<case_name>.foam`
+- `set_case_dir(case_dir)` — public method called by `MainWindow.show_utility()` when the user picks a project on the landing page
+- `_GBM_AVAILABLE` flag — `True` if `generateBackgroundMesh.py` is importable; if `False`, bbox is parsed via inline regex fallback so the tab still works
+- `_BgMeshWorker(QThread)`: runs `surfaceCheck` → parses bbox → writes `blockMeshDict` → `blockMesh` → removes stale snappy time directories and `.foam` files → creates `<case_name>.foam`
 
 **`ui_snappy_hex.py`** — `SnappyHexWidget(QWidget)` (Tab 2):
 - CWD slim bar (40 px) with Change button
 - Five section cards (01–05) in a `QScrollArea`
-- Section 01: file table with columns FILE / SURFACE TYPE / S.MIN / S.MAX / VOL DIR / V.LVL per STL row; Surface Type options are None / Boundary / FaceZone / FaceZone+CellZone / Boundary+CellZone
-- Section 02: geometry unit (mm/m/cm/µm/in/ft), nCellsBetweenLevels, location-in-mesh X Y Z
+- Section 01: file table scanning `constant/` recursively for `.stl` and `.obj` files; columns FILE / SURFACE TYPE / CELL ZONE / S.MIN / S.MAX / VOL DIR / V.LVL per file row; plus a `PlusMinusSpinBox` to add **standard shapes** (Box / Cylinder / Sphere) with coordinate inputs rendered inline per shape
+  - Surface Type dropdown has three options: None / Boundary / FaceZone
+  - Cell Zone is a separate checkbox, enabled only when Surface Type is FaceZone; auto-unchecks and disables when type changes away from FaceZone
+  - FaceZone + Cell Zone checked → `type: faceZone, cellZoneInside: inside`; FaceZone unchecked → `type: faceZone` only; Boundary → `type: boundary` (no cellZone)
+  - All level spinboxes use `PlusMinusSpinBox` from `ui_shared`
+- Section 02: geometry unit (mm/m/cm/um/in/ft), nCellsBetweenLevels, location-in-mesh X Y Z
 - Section 03: implicit feature snapping checkbox
-- Section 04: add-layers checkbox + per-patch nSurfaceLayers spinboxes (auto-populated from Section 01 surface selections)
+- Section 04: add-layers checkbox + per-patch nSurfaceLayers `PlusMinusSpinBox` widgets (auto-populated from Section 01 surface selections)
 - Section 05: Generate + Run buttons; shows backend-unavailable warning if jinja2 is missing
-- `_collect_data()` — reads all widget values on the GUI thread before handing a plain `dict` to a worker (thread-safety pattern)
+- `set_case_dir(case_dir)` — public method called by `MainWindow.show_utility()`; applies `to_wsl_path()` to handle Windows paths from WSLg file dialogs, then refreshes the file list and all banners
+- `_collect_data()` — reads all widget values on the GUI thread before handing a plain `dict` to a worker (thread-safety pattern); includes `geometry.standardShapes` when shapes are configured
+- `_collect_shapes()` — builds the standard shapes list from Section 01 shape widgets; raises `ValueError` on invalid numeric fields
 - `_GenerateWorker(config, sys_dir, cwd)` — calls `generate_snappy_dict_from_config()`; catches both `SystemExit` and `Exception`
 - `_RunSnappyWorker` — removes old time directories, streams `snappyHexMesh`, refreshes `.foam` file
 
 **`setup_snappy.py`** — Core config merging, validation, and Jinja2 rendering:
+- Release metadata constants: `JSON_VERSION`, `JSON_VERSION_DATE`, `OPENFOAM_VERSION`
+- `VALID_SHAPE_TYPES` — list of valid `searchable*` shape type strings for standard shapes
+- `CASE_ONLY_KEYS` — set of keys forbidden in `defaults.json` (`geometry`, `surfaceHandling`, `volumeRefinement`)
 - `deep_merge(base, override)` — recursive dict merge; lists are replaced, not combined
-- `load_snappy_config(config_path)` — loads a JSON config file and merges with `defaults.json`
-- `load_geometry_files(config)` — walks `constant/` recursively to locate each geometry file; accepts any subfolder name
-- `process_geometry()`, `resolve_surface_handling()`, `resolve_volume_refinement()` — build the geometry, surface, and volume refinement data structures for the template; `resolve_surface_handling()` supports four surface modes: boundary, faceZone, faceZone+cellZone, and boundary+cellZone (cellZoneInside is preserved for boundary type when explicitly set)
+- `load_snappy_config(config_file)` — CLI path; loads `defaults.json` merged with `snappy_inputs.json` from the current directory
+- `load_geometry_files(files_value)` — walks `constant/` recursively; accepts `.stl` and `.obj`; validates stem naming and file presence; accepts inline array or path to a text file
+- `process_geometry()`, `resolve_surface_handling()`, `resolve_volume_refinement()` — build the geometry, surface, and volume refinement data structures for the template; `resolve_surface_handling()` supports three surface modes from the GUI: boundary, faceZone, faceZone+cellZone (cellZoneInside driven by the Cell Zone checkbox in Section 01; boundary+cellZone is no longer emitted by the GUI)
 - `render_template(name, context)` — renders a Jinja2 template from `templates/`
 - `generate_snappy_dict_from_config(config, sys_dir, log_cb, cwd=None)` — GUI entry point; temporarily `os.chdir(cwd)` for relative path resolution, then calls `_do_generate()`; restores CWD in `finally`
 - `_do_generate(config, sys_dir, log_cb)` — wraps all validators in `try/except SystemExit` and re-raises as `RuntimeError` so worker threads can catch it cleanly
 - `_write_layer_fv_files(sys_dir, log_cb)` — writes `fvSchemes` / `fvSolution` for `displacementMotionSolver` when `addLayers=true`
+- `main()` — CLI entry point; reads `snappy_inputs.json` from CWD, runs full pipeline including `blockMeshDict` generation
 - `_SETUP_OK` / `_SETUP_ERR` — set at import time; `False` if jinja2 is not installed
 
 **`encoding_utils.py`** — Filename encoding/decoding helpers:
