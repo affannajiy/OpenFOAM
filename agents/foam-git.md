@@ -36,7 +36,6 @@ git remote add bitbucket https://bitbucket.it.keysight.com/scm/~affarusd/openfoa
 3. **Check for build artifacts** — ensure none of the following are staged:
    - `build/`, `dist/`, `__pycache__/`, `*.pyc`, `*.pyo`, `*.spec` output dirs
    - `01_utilities/deploy/build/`, `01_utilities/deploy/dist/`
-   - `OpenFOAM_UI.exe` (binary — only commit intentionally with explicit user approval)
 4. **Check for large files** — warn on any file > 5 MB; abort on files > 50 MB
 5. **Syntax check** — for any staged `.py` file run `python3 -m py_compile <file>`; abort on syntax error
 6. **Untracked sensitive files** — warn if `.env`, `credentials*`, `*.key`, `*.pem` appear in `git status`
@@ -94,7 +93,6 @@ result to both.
 - `build/`, `dist/`, `__pycache__/` directories
 - `*.pyc` / `*.pyo` compiled bytecode
 - PyInstaller artefacts (`*.pkg`, `*.toc`, `base_library.zip`, `warn-*.txt`, `xref-*.html`)
-- The `OpenFOAM_UI.exe` binary unless the user explicitly approves it
 - Merge conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
 
 ## Destructive Operations (always confirm first)
