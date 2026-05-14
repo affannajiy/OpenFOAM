@@ -88,16 +88,11 @@ ui_snappy_hex.py
 ui_log_drawer.py
 ui_landing.py
 ui_shared.py
-setup_snappy.py
-encoding_utils.py
-auto_refinement.py
+snappy_generator.py
 generateBackgroundMesh.py        ← standalone CLI
 generateSnappyHexMeshDict.py     ← standalone CLI
 defaults.json
 requirements.txt
-templates\
-  blockMeshDict.template
-  snappyHexMeshDict.template
 OpenFOAM_UI.exe                  ← Windows launcher
 ```
 
@@ -122,7 +117,7 @@ From the **Ubuntu terminal**:
 
 ```bash
 sudo apt-get install python3-pip
-sudo apt-get install python3-pyqt5 python3-numpy python3-jinja2
+sudo apt-get install python3-pyqt5 python3-numpy
 ```
 
 **Alternative (pip):**
@@ -131,18 +126,10 @@ sudo apt-get install python3-pyqt5 python3-numpy python3-jinja2
 pip3 install -r /mnt/c/OpenFOAM/01_utilities/requirements.txt --break-system-packages
 ```
 
-**Optional** — only needed for `AUTO_`-prefixed STL auto-refinement:
-
-```bash
-pip3 install trimesh --break-system-packages
-```
-
 | Package | Required | Purpose |
 |---------|----------|---------|
 | `PyQt5` | Yes | GUI framework |
 | `numpy` | Yes | Bounding box arithmetic |
-| `jinja2` | Yes | Dictionary template rendering |
-| `trimesh` | Optional | `AUTO_` auto-refinement geometry analysis |
 
 ### Step 8 — Set Up Aliases (optional but recommended)
 
@@ -155,9 +142,9 @@ pip3 install trimesh --break-system-packages
    ```bash
    alias myDir="cd /mnt/c/OpenFOAM"
    alias of2506="source /usr/lib/openfoam/openfoam2506/etc/bashrc"
-   alias generateBackgroundMesh="python3 /mnt/c/OpenFOAM/01_utilities/generateBackgroundMesh.py"
-   alias generateSnappyHexMeshDict="python3 /mnt/c/OpenFOAM/01_utilities/generateSnappyHexMeshDict.py"
-   alias openfoamUI="python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py"
+   alias generateBackgroundMesh="python3 /mnt/c/OpenFOAM/01_utilities/app/generateBackgroundMesh.py"
+   alias generateSnappyHexMeshDict="python3 /mnt/c/OpenFOAM/01_utilities/app/generateSnappyHexMeshDict.py"
+   alias openfoamUI="python3 /mnt/c/OpenFOAM/01_utilities/app/openfoam_ui.py"
    ```
 
 3. Press `Esc`, then save and quit:
@@ -201,8 +188,7 @@ of2506
 | **WSL2** (not WSL1) | `wsl --install` sets this up; `wsl --status` shows current version |
 | **OpenFOAM v2506** inside WSL | See Steps 1–4 above |
 | **Python 3 + pip** inside WSL | Usually pre-installed on Ubuntu; check with `python3 --version` |
-| **PyQt5, numpy, jinja2** inside WSL | See Step 7; launcher can also install these automatically on first run |
-| **trimesh** inside WSL | Optional — only needed for `AUTO_` auto-refinement filenames |
+| **PyQt5, numpy** inside WSL | See Step 7; launcher can also install these automatically on first run |
 
 ## What the Launcher Checks
 
@@ -245,7 +231,7 @@ Generates `system/blockMeshDict` from an STL bounding box and runs `blockMesh`.
 
 ### Tab 2 — SnappyHexMesh Dict
 
-Five-section card form that writes `system/snappyHexMeshDict` via Jinja2 template rendering and optionally runs `snappyHexMesh`.
+Five-section card form that writes `system/snappyHexMeshDict` via `foamDictionary` calls and runs `snappyHexMesh`.
 
 | Section | Content |
 |---------|---------|
@@ -253,19 +239,7 @@ Five-section card form that writes `system/snappyHexMeshDict` via Jinja2 templat
 | **02 Castellation** | Geometry unit (mm / m / cm / µm / in / ft), nCellsBetweenLevels, location-in-mesh X Y Z |
 | **03 Snap controls** | Implicit feature snapping toggle |
 | **04 Layer addition** | Enable boundary layers; per-patch nSurfaceLayers spinboxes (auto-populated from Section 01 surface selections) |
-| **05 Generate & Run** | **Generate snappyHexMeshDict** merges GUI values with `defaults.json` and renders `system/snappyHexMeshDict` (plus `fvSchemes`/`fvSolution` when layers are on); **Run snappyHexMesh** streams the solver to the log and refreshes the `.foam` file |
-
-#### Filename Encoding Convention
-
-STL files can embed refinement metadata directly in the filename so the GUI auto-populates fields:
-
-```
-SURF_BND_L2_L4_wallName.stl          → Boundary surface, refinement 2–4
-SURF_FZ_CZ_L1_L2_VOL_IN_L3_zone.stl → FaceZone+CellZone surface, vol inside at level 3
-AUTO_wallName.stl                     → Auto-analysis via trimesh (requires trimesh installed)
-```
-
-Prefix tokens: `SURF` (surface), `BND` (boundary), `FZ` (face zone), `CZ` (cell zone), `VOL` (volume region), `IN`/`OUT` (inside/outside), `L<n>` (refinement level).
+| **05 Generate & Run** | Single **Generate Dict & Run snappyHexMesh** button: writes `system/snappyHexMeshDict` (plus `fvSchemes`/`fvSolution` when layers are on), streams the solver to the log, removes numeric time directories (except `0`), and refreshes the `.foam` file |
 
 ### Output Log
 
@@ -301,7 +275,7 @@ To use your own case:
 source /usr/lib/openfoam/openfoam2506/etc/bashrc
 
 # 2. Launch the GUI (double-click the .exe, or from WSL terminal:)
-python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
+python3 /mnt/c/OpenFOAM/01_utilities/app/openfoam_ui.py
 # With alias: of2506 && openfoamUI
 
 # Landing page: create a new project or open an existing one → choose utility → Continue →
@@ -327,7 +301,7 @@ Reads an STL bounding box via `surfaceCheck`, writes `system/blockMeshDict`, and
 cd /mnt/c/OpenFOAM/03_mesh_session
 source /usr/lib/openfoam/openfoam2506/etc/bashrc
 
-python3 /mnt/c/OpenFOAM/01_utilities/generateBackgroundMesh.py \
+python3 /mnt/c/OpenFOAM/01_utilities/app/generateBackgroundMesh.py \
   -stlPath constant/triSurface/geometry.stl \
   -dx 0.05 -dy 0.05 -dz 0.05
 ```
@@ -348,7 +322,7 @@ Interactive CLI that builds `system/snappyHexMeshDict` through prompts. Also gen
 ```bash
 cd /mnt/c/OpenFOAM/03_mesh_session
 source /usr/lib/openfoam/openfoam2506/etc/bashrc
-python3 /mnt/c/OpenFOAM/01_utilities/generateSnappyHexMeshDict.py
+python3 /mnt/c/OpenFOAM/01_utilities/app/generateSnappyHexMeshDict.py
 ```
 
 Requires `system/controlDict` and a `constant/` directory to exist in the case root.
@@ -431,16 +405,15 @@ sudo apt-get install -y python3 python3-pip
 ---
 
 #### "Missing Python Packages"
-One or more of PyQt5, numpy, jinja2, trimesh are missing.
+One or more of PyQt5, numpy are missing.
 
 **Fix:**
 ```bash
-pip3 install PyQt5 numpy jinja2 trimesh --break-system-packages
+pip3 install PyQt5 numpy --break-system-packages
 ```
 Or use system packages:
 ```bash
-sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2
-pip3 install trimesh --break-system-packages
+sudo apt-get install -y python3-pyqt5 python3-numpy
 ```
 
 ---
@@ -477,7 +450,6 @@ Check terminal output for Python errors.
 |---------|-----|
 | `python3: command not found` | `sudo apt-get install python3` |
 | `No module named 'PyQt5'` | `sudo apt-get install python3-pyqt5` |
-| `No module named 'jinja2'` | `sudo apt-get install python3-jinja2` |
 | `blockMesh: command not found` | Source the OpenFOAM environment first: `source /usr/lib/openfoam/openfoam2506/etc/bashrc` |
 | Blank window / no display | Windows 10: start VcXsrv or MobaXterm; Windows 11: WSLg should work out of the box |
 | `Not found: .../constant` | The selected directory is not a valid case root — it must contain both `constant/` and `system/` |
@@ -510,27 +482,30 @@ For developers maintaining, extending, or deploying the tool.
 ```
 C:\OpenFOAM\
 ├── 01_utilities\
-│   ├── openfoam_ui.py                  # PyQt5 GUI entry point
-│   ├── ui_shared.py                    # Colour tokens, styles, shared helpers
-│   ├── ui_landing.py                   # Landing page widget
-│   ├── ui_log_drawer.py                # Collapsible/resizable log drawer widget
-│   ├── ui_background_mesh.py           # Background Mesh tab widget
-│   ├── ui_snappy_hex.py                # SnappyHexMesh Dict tab widget (Jinja2-based)
-│   ├── setup_snappy.py                 # Core config merging, validation, template rendering
-│   ├── encoding_utils.py               # Filename encoding/decoding (SURF_, VOL_, FZ_, etc.)
-│   ├── auto_refinement.py              # AUTO_ geometry analysis via trimesh (optional)
-│   ├── defaults.json                   # Default values for all snappyHexMesh controls
-│   ├── templates\
-│   │   ├── snappyHexMeshDict.template  # Jinja2 template for snappyHexMeshDict
-│   │   └── blockMeshDict.template      # Jinja2 template for blockMeshDict
-│   ├── generateBackgroundMesh.py       # CLI: blockMesh from STL bbox (do not modify)
-│   ├── generateSnappyHexMeshDict.py    # CLI: interactive snappyHexMeshDict (do not modify)
-│   ├── requirements.txt                # Python dependencies
-│   ├── openfoam_ui_launcher.py         # Windows launcher source (builds the .exe)
-│   └── _deploy\                        # Build tools — not in the distribution zip
+│   ├── app\                            # Distribution ZIP — all end-user files
+│   │   ├── openfoam_ui.py              # PyQt5 GUI entry point
+│   │   ├── ui_shared.py                # Colour tokens, styles, shared helpers
+│   │   ├── ui_landing.py               # Landing page widget
+│   │   ├── ui_log_drawer.py            # Collapsible/resizable log drawer widget
+│   │   ├── ui_background_mesh.py       # Background Mesh tab widget
+│   │   ├── ui_snappy_hex.py            # SnappyHexMesh Dict tab widget
+│   │   ├── snappy_generator.py         # Tab 2 backend: foamDictionary calls + snappyHexMesh run
+│   │   ├── defaults.json               # Default OpenFOAM solver parameters
+│   │   ├── generateBackgroundMesh.py   # CLI: blockMesh from STL bbox (do not modify)
+│   │   ├── generateSnappyHexMeshDict.py # CLI: interactive snappyHexMeshDict (do not modify)
+│   │   ├── requirements.txt            # Python dependencies
+│   │   ├── openfoam_ui_launcher.py     # Windows launcher source (builds the .exe)
+│   │   ├── OpenFOAM_UI.exe             # Windows launcher binary
+│   │   ├── icons\                      # App icon PNGs
+│   │   │   ├── icon_16.png  …  icon_256.png
+│   │   │   └── openfoam_ui.ico
+│   │   └── templates\                  # OpenFOAM dict templates
+│   └── deploy\                         # Build tools — not in the distribution zip
+│       ├── generate_icon.py            # Generates SVG → PNG → ICO icon pipeline
+│       ├── icon_source.svg             # Generated SVG source (output of generate_icon.py)
 │       ├── openfoam_ui_launcher.spec   # PyInstaller spec
 │       ├── version_info.txt            # Windows EXE metadata (file version, product name)
-│       ├── build_exe.bat               # One-click build script
+│       ├── build_exe.bat               # One-click build script (runs icon gen + pyinstaller)
 │       ├── build\                      # PyInstaller intermediate artefacts
 │       └── dist\                       # Built OpenFOAM_UI.exe output
 ├── 03_mesh_session\                    # Example OpenFOAM case
@@ -538,6 +513,12 @@ C:\OpenFOAM\
 │   ├── constant\polyMesh\              # Generated mesh (blockMesh output)
 │   ├── system\                         # Dictionaries (blockMeshDict, snappyHexMeshDict, …)
 │   └── programOutputs\                 # Captured log files
+├── agents\                             # Scoped subagent definitions (see CLAUDE.md)
+│   ├── foam-docs.md
+│   ├── foam-ui.md
+│   ├── foam-snappymesh.md
+│   ├── foam-backgroundmesh.md
+│   └── foam-git.md
 ├── documentation\
 │   └── OpenFOAMSetup.md                # WSL/OpenFOAM setup and troubleshooting guide
 └── CLAUDE.md                           # AI assistant guidance (architecture, design patterns)
@@ -548,11 +529,10 @@ C:\OpenFOAM\
 Install inside WSL:
 
 ```bash
-sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2
-pip3 install trimesh --break-system-packages
+sudo apt-get install -y python3-pyqt5 python3-numpy
 ```
 
-Or via pip for all packages (Ubuntu 24.04+):
+Or via pip (Ubuntu 24.04+):
 
 ```bash
 pip3 install -r 01_utilities/requirements.txt --break-system-packages
@@ -562,8 +542,6 @@ pip3 install -r 01_utilities/requirements.txt --break-system-packages
 |---------|----------|---------|
 | `PyQt5` | Yes | GUI framework |
 | `numpy` | Yes | Bounding box scaling and cell-count arithmetic |
-| `jinja2` | Yes | Template rendering for `snappyHexMeshDict` and `blockMeshDict` |
-| `trimesh` | Optional | `AUTO_`-prefixed STL geometry analysis; guarded by `_DEPS_AVAILABLE` flag |
 
 ## Architecture Overview
 
@@ -578,10 +556,8 @@ The tool has two layers: the **Windows launcher** (`.exe`) and the **Python appl
 - `openfoam_ui.py` — `QMainWindow` entry point; tab switching, header bar, LogDrawer, ParaView launcher.
 - `ui_landing.py` — new/open project landing page; recents stored in `~/.openfoam_ui_recents.json`.
 - `ui_background_mesh.py` — Tab 1; `_BgMeshWorker(QThread)` runs `surfaceCheck` → `blockMesh`.
-- `ui_snappy_hex.py` — Tab 2; `_GenerateWorker` and `_RunSnappyWorker` communicate via Qt signals.
-- `setup_snappy.py` — Jinja2 rendering, config merging (`deep_merge`), validators; `_do_generate()` wraps `SystemExit` as `RuntimeError` for clean thread handling.
-- `encoding_utils.py` — decodes `SURF_/VOL_/BND_/FZ_/CZ_` tokens from STL filenames.
-- `auto_refinement.py` — optional trimesh-based level derivation for `AUTO_`-prefixed files.
+- `ui_snappy_hex.py` — Tab 2; `_SnappyWorker(QThread)` calls `snappy_generator.generate_and_run()`.
+- `snappy_generator.py` — Tab 2 backend; writes `snappyHexMeshDict` via a `foamDictionary` call sequence (mirroring the reference CLI), then streams `snappyHexMesh -overwrite`. All subprocess calls use `bash -c 'source <OF_bashrc> && ...'` with `cwd=case_dir`; never uses `os.chdir()`.
 
 See `CLAUDE.md` for full architecture detail and design patterns.
 
@@ -596,7 +572,7 @@ Only needed when `openfoam_ui_launcher.py` itself changes. Edits to any other `.
 **Steps:**
 
 ```bat
-cd C:\OpenFOAM\01_utilities\_deploy
+cd C:\OpenFOAM\01_utilities\deploy
 build_exe.bat
 ```
 
@@ -629,8 +605,9 @@ Run through this list for every release distributed to end users.
 
 ### Packaging
 
-- [ ] ZIP the entire `01_utilities\` folder (include `.exe`, all `.py`, `templates\`, `defaults.json`, `requirements.txt`)
-- [ ] Verify the ZIP does **not** include `_deploy\`, `__pycache__\`, or any `.pyc` files
+- [ ] ZIP the `01_utilities\app\` folder (include `.exe`, all `.py`, `icons\`, `defaults.json`, `requirements.txt`, `templates\`)
+- [ ] Confirm `icons\` folder is present and contains at minimum `icon_256.png` (run `deploy\build_exe.bat` to regenerate)
+- [ ] Verify the ZIP does **not** include `deploy\`, `__pycache__\`, or any `.pyc` files
 - [ ] Smoke-test the ZIP: extract to a clean folder, double-click the `.exe`, confirm all pre-flight checks pass and the GUI opens
 
 ### What is and is not bundled in the EXE
@@ -640,9 +617,9 @@ The `.exe` bundles only the launcher (`tkinter` + stdlib). The following run liv
 | Bundled in EXE | Not bundled (runs from .py files) |
 |----------------|-----------------------------------|
 | `openfoam_ui_launcher.py` | `openfoam_ui.py` and all `ui_*.py` |
-| tkinter, stdlib | `setup_snappy.py`, `encoding_utils.py`, `auto_refinement.py` |
-| | PyQt5, numpy, jinja2, trimesh |
-| | Jinja2 templates, `defaults.json` |
+| tkinter, stdlib | `snappy_generator.py` |
+| | PyQt5, numpy |
+| | `defaults.json` |
 
 ## Platform Notes
 

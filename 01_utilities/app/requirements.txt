@@ -1,0 +1,13 @@
+# Python dependencies for 01_utilities
+#
+# Install via apt (recommended in WSL):
+#   sudo apt-get install -y python3-pyqt5 python3-numpy
+#
+# Or via pip (add --break-system-packages on Ubuntu 24.04+):
+#   pip3 install -r requirements.txt --break-system-packages
+
+# GUI framework
+PyQt5>=5.15
+
+# Bounding box scaling and cell-count arithmetic (background mesh)
+numpy>=1.21

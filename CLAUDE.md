@@ -17,41 +17,39 @@ Scripts must be run from inside an OpenFOAM case directory (e.g., `03_mesh_sessi
 
 Install in WSL:
 ```bash
-sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2
+sudo apt-get install -y python3-pyqt5 python3-numpy
 ```
 
 Or via pip:
 ```bash
-pip3 install -r 01_utilities/requirements.txt --break-system-packages
+pip3 install -r 01_utilities/app/requirements.txt --break-system-packages
 ```
 
 Third-party libraries used:
 - **PyQt5** — GUI framework (`ui_*.py`, `openfoam_ui.py`)
 - **numpy** — bounding box scaling and cell-count arithmetic (`generateBackgroundMesh.py`)
-- **jinja2** — Jinja2 template rendering for `snappyHexMeshDict` and `blockMeshDict` (`setup_snappy.py`); if missing, `_SETUP_OK = False` and the GUI shows an error label in Section 05
-- **trimesh** — optional; used only by `auto_refinement.py` for `AUTO_`-prefixed STL files; guarded by `_DEPS_AVAILABLE` flag
 
-All other imports (`os`, `sys`, `subprocess`, `re`, `argparse`, `glob`, `typing`) are Python standard library.
+All other imports (`os`, `sys`, `subprocess`, `re`, `argparse`, `glob`, `typing`, `json`, `shutil`) are Python standard library.
 
 ## Running the Tools
 
 **GUI application (recommended):**
 ```bash
 source /usr/lib/openfoam/openfoam2506/etc/bashrc
-python3 /mnt/c/OpenFOAM/01_utilities/openfoam_ui.py
+python3 /mnt/c/OpenFOAM/01_utilities/app/openfoam_ui.py
 # Landing page opens — create or open a project, choose a utility, then Continue →
 ```
 
 **CLI: generate background block mesh from STL bounding box:**
 ```bash
-python3 01_utilities/generateBackgroundMesh.py \
+python3 01_utilities/app/generateBackgroundMesh.py \
   -stlPath constant/triSurface/geom.stl \
   -dx 0.05 -dy 0.05 -dz 0.05
 ```
 
 **CLI: interactive snappyHexMeshDict generator:**
 ```bash
-python3 01_utilities/generateSnappyHexMeshDict.py
+python3 01_utilities/app/generateSnappyHexMeshDict.py
 ```
 
 **Full mesh generation workflow (after background mesh is ready):**
@@ -64,21 +62,40 @@ snappyHexMesh -overwrite
 
 The project has two layers: Python tooling (`01_utilities/`) and an example OpenFOAM case (`03_mesh_session/`).
 
-All Python source (`*.py`), `templates/`, `defaults.json`, `requirements.txt`, and `OpenFOAM_UI.exe` live directly in `01_utilities/` — this folder is the distribution zip.
-- **`_deploy/`** — PyInstaller build scripts (`build_exe.bat`, `openfoam_ui_launcher.spec`, `version_info.txt`) and their build artefacts (`build/`, `dist/`); not included in the distribution zip
+`01_utilities/` is split into two subfolders:
+- **`app/`** — everything distributed to end users: all `*.py` app files, `defaults.json`, `requirements.txt`, `OpenFOAM_UI.exe`, `templates/`, and `icons/`. This folder is the distribution ZIP.
+- **`deploy/`** — build tooling only (not shipped): `generate_icon.py`, `openfoam_ui_launcher.spec`, `build_exe.bat`, `version_info.txt`, `icon_source.svg`, and the PyInstaller `build/`/`dist/` artefacts.
 
-### Python Tooling (`01_utilities/`)
+**Icon sizes** (`deploy/generate_icon.py` → `app/icons/`):
+
+| File | Size | Used by |
+|------|------|---------|
+| `icon_16.png` | 16×16 | Windows system / Explorer small |
+| `icon_32.png` | 32×32 | Windows system standard |
+| `icon_48.png` | 48×48 | Windows Explorer list/detail |
+| `icon_64.png` | 64×64 | Splash screen image |
+| `icon_128.png` | 128×128 | High-DPI / macOS |
+| `icon_256.png` | 256×256 | Qt window icon (`QIcon`) |
+| `openfoam_ui.ico` | all 6 sizes | Embedded in `OpenFOAM_UI.exe` |
+
+**Building the EXE** (Windows CMD from `deploy/`):
+```bat
+build_exe.bat
+```
+This runs `generate_icon.py` → PyInstaller → copies `OpenFOAM_UI.exe` to `app/`.
+
+### Python Tooling (`01_utilities/app/`)
 
 The GUI is split across multiple files to keep each file focused and testable in isolation.
 
-**`openfoam_ui_launcher.py`** — Windows-only `.exe` entry point (built with PyInstaller via `openfoam_ui_launcher.spec`). Stdlib only (`tkinter`, `subprocess`, `sys`, `os`, `time`). Shows a dark branded splash window, runs six pre-flight checks (WSL reachable, WSLg display, OpenFOAM bashrc, python3, required packages, `openfoam_ui.py` present), then launches `openfoam_ui.py` inside WSL via `subprocess.Popen` and immediately closes the splash. Required packages checked: `PyQt5`, `numpy`, `jinja2`, `trimesh`. If check 3 finds OF v2312 but not v2506, it surfaces a version-mismatch error with specific install instructions. The `.exe` is a thin launcher only — all application logic runs in WSL. Do not rebuild the `.exe` unless `openfoam_ui_launcher.py` itself changes; edits to any other `.py` file take effect immediately on the next launch.
+**`openfoam_ui_launcher.py`** — Windows-only `.exe` entry point (built with PyInstaller via `openfoam_ui_launcher.spec`). Stdlib only (`tkinter`, `subprocess`, `sys`, `os`, `time`). Shows a dark branded splash window, runs six pre-flight checks (WSL reachable, WSLg display, OpenFOAM bashrc, python3, required packages, `openfoam_ui.py` present), then launches `openfoam_ui.py` inside WSL via `subprocess.Popen` and immediately closes the splash. Required packages checked: `PyQt5`, `numpy`. If check 3 finds OF v2312 but not v2506, it surfaces a version-mismatch error with specific install instructions. The `.exe` is a thin launcher only — all application logic runs in WSL. Do not rebuild the `.exe` unless `openfoam_ui_launcher.py` itself changes; edits to any other `.py` file take effect immediately on the next launch.
 
 **`openfoam_ui.py`** — PyQt5 `QMainWindow` entry point. Thin shell: builds the header bar, hero strip, tab pills, `QStackedWidget`, `LogDrawer`, and status bar. Owns tab-switching logic and the Open ParaView action. No CFD logic here.
 
-A module-level `qInstallMessageHandler` (installed before `QApplication` is created) silences Qt5's harmless `"Could not parse stylesheet"` warnings. These are false positives emitted by `QFrame` widgets with `border-radius` inside `QScrollArea` hierarchies on Linux/WSL — the styles are applied correctly despite the warning. All other Qt diagnostics are forwarded to `stderr` unchanged.
+Window title bar / taskbar icon is `openfoam_ui.ico` (multi-size; OS picks the right resolution). A module-level `qInstallMessageHandler` (installed before `QApplication` is created) silences Qt5's harmless `"Could not parse stylesheet"` warnings. These are false positives emitted by `QFrame` widgets with `border-radius` inside `QScrollArea` hierarchies on Linux/WSL — the styles are applied correctly despite the warning. All other Qt diagnostics are forwarded to `stderr` unchanged.
 
 Key layout (top to bottom, fixed heights except the stack):
-- **Header bar** (52 px, `#1A1A1A`): ← Home button (hidden on landing page), logo swatch, app name, CWD basename, tab pills, separator, Open ParaView
+- **Header bar** (52 px, `#1A1A1A`): ← Home button (hidden on landing page), 20×20 `icon_32.png` logo (scaled `QLabel`), app name, CWD basename, tab pills, separator, Open ParaView
 - **Root `QStackedWidget`**: index 0 = `LandingWidget`; index 1 = utility UI (hero + tab stack + log)
 - **Hero strip** (80 px, `#F4F4F4`): eyebrow + title + subtitle per active tab; WORKING DIR badge on the right
 - **Tab `QStackedWidget`** (stretches): holds `BackgroundMeshWidget` and `SnappyHexWidget`
@@ -109,6 +126,7 @@ Key layout (top to bottom, fixed heights except the stack):
 
 **`ui_log_drawer.py`** — `LogDrawer(QWidget)`:
 - Collapsible (chevron button) and resizable (drag the 8 px grip at the bottom upward); starts expanded at 350 px
+- Toolbar button order (left to right): **[Copy]** **[Clear]** **[▲/▼]** — Copy and Clear are shown/hidden together using `setVisible`; both hidden when the log is empty, shown once content is appended
 - `write(message, tag)` — thread-safe; emits `_append_sig` which is handled on the main thread
 - `set_running(bool)` — starts/stops an amber blinking dot animation (QTimer)
 - `status_changed` signal — connected to the main window status bar
@@ -126,61 +144,32 @@ Key layout (top to bottom, fixed heights except the stack):
 **`ui_snappy_hex.py`** — `SnappyHexWidget(QWidget)` (Tab 2):
 - CWD slim bar (40 px) with Change button
 - Five section cards (01–05) in a `QScrollArea`
-- Section 01: file table scanning `constant/` recursively for `.stl` and `.obj` files; columns FILE / SURFACE TYPE / CELL ZONE / S.MIN / S.MAX / VOL DIR / V.LVL per file row; plus a `PlusMinusSpinBox` to add **standard shapes** (Box / Cylinder / Sphere) with coordinate inputs rendered inline per shape
-  - Surface Type dropdown has three options: None / Boundary / FaceZone
-  - Cell Zone is a separate checkbox, enabled only when Surface Type is FaceZone; auto-unchecks and disables when type changes away from FaceZone
-  - FaceZone + Cell Zone checked → `type: faceZone, cellZoneInside: inside`; FaceZone unchecked → `type: faceZone` only; Boundary → `type: boundary` (no cellZone)
-  - All level spinboxes use `PlusMinusSpinBox` from `ui_shared`
-- Section 02: geometry unit (mm/m/cm/um/in/ft), nCellsBetweenLevels, location-in-mesh X Y Z
-- Section 03: implicit feature snapping checkbox
-- Section 04: add-layers checkbox + per-patch nSurfaceLayers `PlusMinusSpinBox` widgets (auto-populated from Section 01 surface selections)
-- Section 05: Generate + Run buttons; shows backend-unavailable warning if jinja2 is missing
+- Section 01: file table scanning `constant/` recursively for `.stl` and `.obj` files; columns FILE / SURFACE TYPE / CELL ZONE / S.MIN / S.MAX / VOL DIR / V.LVL per file row; plus a `PlusMinusSpinBox` to add **standard shapes** (Box / Cylinder / Sphere) with coordinate inputs and vol direction/level rendered inline per shape
+  - Surface Type dropdown: None / Boundary / FaceZone
+  - Cell Zone checkbox: enabled only when Surface Type is FaceZone; auto-unchecks when type changes away
+  - V.LVL spinbox: disabled when Vol Direction is "None"
+  - Section 04 layer patches auto-populate from Section 01; multi-zone STLs expand each solid name as a separate patch entry
+- Section 02: geometry unit (mm/m/cm/um/in/ft), nCellsBetweenLevels, location-in-mesh (QDoubleSpinBox) + yellow warning label
+- Section 03: implicit feature snapping checkbox + explicit-requires-.eMesh note
+- Section 04: add-layers checkbox + per-patch nSurfaceLayers `PlusMinusSpinBox` (auto-populated from Section 01)
+- Section 05: single "Generate Dict & Run snappyHexMesh" button
 - `set_case_dir(case_dir)` — public method called by `MainWindow.show_utility()`; applies `to_wsl_path()` to handle Windows paths from WSLg file dialogs, then refreshes the file list and all banners
-- `_collect_data()` — reads all widget values on the GUI thread before handing a plain `dict` to a worker (thread-safety pattern); includes `geometry.standardShapes` when shapes are configured
-- `_collect_shapes()` — builds the standard shapes list from Section 01 shape widgets; raises `ValueError` on invalid numeric fields
-- `_GenerateWorker(config, sys_dir, cwd)` — calls `generate_snappy_dict_from_config()`; catches both `SystemExit` and `Exception`
-- `_RunSnappyWorker` — removes old time directories, streams `snappyHexMesh`, refreshes `.foam` file
+- `_collect_data()` — reads all widget values on the GUI thread and returns the config dict for `snappy_generator.generate_and_run()`; validates S.Max ≥ S.Min; raises `ValueError` on invalid input
+- `_collect_shapes()` — builds the standard shapes list; raises `ValueError` on missing/invalid coordinate fields
+- `_SnappyWorker(QThread)` — calls `snappy_generator.generate_and_run()` in a thread; emits `log_signal(str, str)` and `finished_signal(bool)`
 
-**`setup_snappy.py`** — Core config merging, validation, and Jinja2 rendering:
-- Release metadata constants: `JSON_VERSION`, `JSON_VERSION_DATE`, `OPENFOAM_VERSION`
-- `VALID_SHAPE_TYPES` — list of valid `searchable*` shape type strings for standard shapes
-- `CASE_ONLY_KEYS` — set of keys forbidden in `defaults.json` (`geometry`, `surfaceHandling`, `volumeRefinement`)
-- `deep_merge(base, override)` — recursive dict merge; lists are replaced, not combined
-- `load_snappy_config(config_file)` — CLI path; loads `defaults.json` merged with `snappy_inputs.json` from the current directory
-- `load_geometry_files(files_value)` — walks `constant/` recursively; accepts `.stl` and `.obj`; validates stem naming and file presence; accepts inline array or path to a text file
-- `process_geometry()`, `resolve_surface_handling()`, `resolve_volume_refinement()` — build the geometry, surface, and volume refinement data structures for the template; `resolve_surface_handling()` supports three surface modes from the GUI: boundary, faceZone, faceZone+cellZone (cellZoneInside driven by the Cell Zone checkbox in Section 01; boundary+cellZone is no longer emitted by the GUI)
-- `render_template(name, context)` — renders a Jinja2 template from `templates/`
-- `generate_snappy_dict_from_config(config, sys_dir, log_cb, cwd=None)` — GUI entry point; temporarily `os.chdir(cwd)` for relative path resolution, then calls `_do_generate()`; restores CWD in `finally`
-- `_do_generate(config, sys_dir, log_cb)` — wraps all validators in `try/except SystemExit` and re-raises as `RuntimeError` so worker threads can catch it cleanly
-- `_write_layer_fv_files(sys_dir, log_cb)` — writes `fvSchemes` / `fvSolution` for `displacementMotionSolver` when `addLayers=true`
-- `main()` — CLI entry point; reads `snappy_inputs.json` from CWD, runs full pipeline including `blockMeshDict` generation
-- `_SETUP_OK` / `_SETUP_ERR` — set at import time; `False` if jinja2 is not installed
+**`snappy_generator.py`** — Backend for Tab 2; generates `snappyHexMeshDict` and runs `snappyHexMesh`:
+- `generate_and_run(config, case_dir, log_cb) → bool` — sole public entry point
+- Writes the FoamFile header directly, then runs `foamDictionary` commands in the same sequence as `generateSnappyHexMeshDict.py` (geometry → castellatedMeshControls → features → refinementRegions → refinementSurfaces → snapControls → addLayersControls → meshQualityControls)
+- All `foamDictionary` calls are wrapped in `bash -c 'source ... && foamDictionary ...'` via `["bash", "-c", cmd]` with `cwd=case_dir` — never uses `os.chdir()`
+- Features block written by direct file manipulation (foamDictionary cannot write list-of-dict syntax)
+- If `addLayers=True`, also writes `fvSchemes` and `fvSolution` for `displacementMotionSolver`
+- After `snappyHexMesh -overwrite` completes: removes numeric time directories (except `0`), refreshes `<case_name>.foam` sentinel file
+- Raises `RuntimeError` if any `foamDictionary` call returns non-zero exit code
 
-**`encoding_utils.py`** — Filename encoding/decoding helpers:
-- `build_tags()` — returns the prefix token dict from `defaults.json` (`encodingConvention`)
-- `decode_surf_tag(filename)` — parses `SURF_BND/FZ/CZ_L<min>_L<max>_...` tokens from a filename
-- `vol_direction()` — parses `VOL_IN/OUT_L<n>` tokens
-- `empty_encoded_result()` — returns a zeroed result dict for unencoded filenames
-
-**`auto_refinement.py`** — Optional AUTO_ geometry analysis (requires trimesh):
-- `_DEPS_AVAILABLE` — `True` only when trimesh and numpy are both importable
-- `parse_auto_encoded_name(filename)` — reads `AUTO_` prefix and any override tokens
-- `compute_auto_levels_for_geometry(stl_path, params)` — loads mesh via trimesh, measures feature angles and gap sizes, calls `derive_snappy_levels()` to produce per-surface refinement levels
-- `validate_auto_refinement_params(params)` — checks that `autoRefinementParams` values are sane
-
-**`defaults.json`** — Default values for all snappyHexMesh controls:
-- `encodingConvention` — prefix tokens (`SURF`, `VOL`, `BND`, `FZ`, `CZ`)
-- `castellatedMeshControls`, `snapControls`, `addLayersControls`, `meshQualityControls` — standard OpenFOAM defaults
-- `settings` — `extractRefinementFromNames`, `addLayers`, `mergeTolerance`
-- `backgroundMesh.enlargementFactor` — 1.1× padding applied to STL bounding box
-- `autoRefinementParams` — parameters for `AUTO_` trimesh analysis
-
-**`templates/snappyHexMeshDict.template`** — Jinja2 template for `snappyHexMeshDict`:
-- Full OpenFOAM dictionary; all values injected from the merged config dict
-- `addLayersControls.layers` iterates `addLayersControls.layers.items()` — empty dict produces no output
-
-**`templates/blockMeshDict.template`** — Jinja2 template for `blockMeshDict`:
-- Injects `xMin/xMax/yMin/yMax/zMin/zMax/nx/ny/nz` from `compute_block_mesh_params()`
+**`defaults.json`** — Default OpenFOAM solver parameters (no encoding or auto-refinement keys):
+- `settings` — `addLayers`, `mergeTolerance`, `openfoamVersion`
+- `castellatedMeshControls`, `snapControls`, `addLayersControls`, `meshQualityControls` — standard OpenFOAM defaults read by `snappy_generator.py` at runtime
 
 **`generateBackgroundMesh.py`** — Standalone CLI (do not modify):
 1. Calls `surfaceCheck` on the STL, parses bounding box coordinates via regex
@@ -198,12 +187,9 @@ Key layout (top to bottom, fixed heights except the stack):
 - **Subprocess-based integration**: all OpenFOAM executables are invoked via `subprocess.run` / `subprocess.Popen`; stdout/stderr is captured to the `LogDrawer` or parsed with regex
 - **Thread safety**: worker threads (`QThread` subclasses) communicate with the UI exclusively via Qt signals. Widget state is read on the GUI thread in `_collect_data()` before workers start — no widget access from threads
 - **Two subprocess helpers**: `run_of_command` (streaming, for long-running commands) vs `run_foam_cmd` (blocking, for quick `foamDictionary` writes that produce noisy stderr)
-- **Jinja2 template rendering**: `snappyHexMeshDict` and `blockMeshDict` are rendered from `templates/` via `setup_snappy.render_template()`. The GUI builds a merged config dict (`defaults.json` + widget overrides via `deep_merge()`) and passes it as the Jinja2 context in one shot — no `foamDictionary` subprocess calls
-- **JSON config merging**: `deep_merge(base, override)` merges defaults with GUI-collected values. Lists replace (not extend) their base counterparts. GUI-only keys (`geometry`, `surfaceHandling`, `volumeRefinement`) are added only when the user has configured them
-- **Graceful dependency handling**: `setup_snappy.py` and `auto_refinement.py` wrap optional imports in `try/except`; `_SETUP_OK` / `_DEPS_AVAILABLE` flags allow the module to load even when jinja2 or trimesh are absent, with a user-visible error surfaced in the GUI
-- **CWD management for relative paths**: `generate_snappy_dict_from_config()` temporarily `os.chdir(cwd)` so that `load_geometry_files()` can resolve `constant/` relative paths; CWD is always restored in a `finally` block
-- **SystemExit in threads**: validators in `setup_snappy.py` call `sys.exit()` on bad input. `_do_generate()` catches `SystemExit` and re-raises as `RuntimeError` so worker threads can handle it without killing the process
-- **Do not modify the CLI scripts**: `generateBackgroundMesh.py` and `generateSnappyHexMeshDict.py` are standalone tools; the GUI uses the new Jinja2-based backend (`setup_snappy.py`) independently
+- **foamDictionary subprocess chain**: `snappy_generator.generate_and_run()` writes `snappyHexMeshDict` by running a sequence of `foamDictionary -add` calls (mirroring `generateSnappyHexMeshDict.py`) and then streams `snappyHexMesh -overwrite`. Each call is wrapped in `bash -c 'source <OF_bashrc> && foamDictionary ...'` so the OpenFOAM environment is always available, regardless of how the GUI was launched. The features block (list-of-dict syntax) is injected by direct file manipulation since `foamDictionary` cannot write it.
+- **No os.chdir() in snappy_generator**: all subprocess calls pass `cwd=case_dir` explicitly; the generator never changes the process working directory
+- **Do not modify the CLI scripts**: `generateBackgroundMesh.py` and `generateSnappyHexMeshDict.py` are standalone tools; the GUI uses `snappy_generator.py` independently
 - **Qt5 Stylesheet Rules (Linux/WSL)** — Qt5 on Ubuntu generates `Could not parse stylesheet of object QFrame(...)` warnings in two situations:
   1. `setFrameShape(QFrame.HLine/VLine)` combined with `setStyleSheet()` on the same `QFrame` — fix: remove `setFrameShape`; use `setFixedHeight(1)` + background-only stylesheet instead
   2. `QFrame { border: ...; border-radius: ...; }` (bare type selector, no objectName) — fix: always call `setObjectName("name")` and scope the rule as `QFrame#name { ... }`. A single property like `background` only is safe without scoping; adding `border` or `border-radius` requires scoping
@@ -217,6 +203,34 @@ Standard OpenFOAM case structure:
 - `constant/polyMesh/` — generated mesh (output of `blockMesh`)
 - `system/` — all configuration dictionaries (`blockMeshDict`, `snappyHexMeshDict`, `controlDict`, `fvSchemes`, `fvSolution`)
 - `programOutputs/` — captured log files from mesh tool runs
+
+## Subagents
+
+Five scoped subagents are defined in `/agents/`. Each agent owns a specific slice of the
+codebase and has explicit forbidden-file lists to prevent cross-contamination.
+
+| Agent | Scope |
+|-------|-------|
+| foam-docs | Documentation only (`*.md`); never modifies `.py` files |
+| foam-ui | All GUI files — wiring, navigation, workers, visual design, styling, icons, splash screen |
+| foam-snappymesh | `snappy_generator.py` + `defaults.json` |
+| foam-backgroundmesh | `ui_background_mesh.py` only |
+| foam-git | Git operations — pre-commit checks, commit authoring, push to GitHub and Bitbucket |
+
+> `foam-design` has been merged into `foam-ui`.
+
+### Invoking a subagent
+
+From the project root in Claude Code:
+```
+claude --agent foam-snappymesh "fix the refinementRegions entry for faceZone surfaces"
+claude --agent foam-ui "fix Section 04 not refreshing when Section 01 changes"
+claude --agent foam-ui "update the splash screen icon"
+claude --agent foam-git "commit the latest UI changes and push to both remotes"
+```
+
+### Agent file location
+`/mnt/c/OpenFOAM/agents/`  (Windows: `C:\OpenFOAM\agents\`)
 
 ## Platform Notes
 
