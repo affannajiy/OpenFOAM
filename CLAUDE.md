@@ -127,7 +127,7 @@ Key layout (top to bottom, fixed heights except the stack):
 **`ui_log_drawer.py`** — `LogDrawer(QWidget)`:
 - Collapsible (chevron button) and resizable (drag the 8 px grip at the bottom upward); starts expanded at 350 px
 - Toolbar button order (left to right): **[Copy]** **[Clear]** **[▲/▼]** — Copy and Clear are shown/hidden together using `setVisible`; both hidden when the log is empty, shown once content is appended
-- `write(message, tag)` — thread-safe; emits `_append_sig` which is handled on the main thread
+- `write(message, tag)` — thread-safe; emits `_append_sig` which is handled on the main thread; normalises each message to end with exactly one `\n` before insertion so line counts are accurate
 - `set_running(bool)` — starts/stops an amber blinking dot animation (QTimer)
 - `status_changed` signal — connected to the main window status bar
 - Colour tags: `"error"` → red, `"warn"` → amber, `"info"` → blue, `"cmd"` → grey
@@ -149,7 +149,7 @@ Key layout (top to bottom, fixed heights except the stack):
   - Cell Zone checkbox: enabled only when Surface Type is FaceZone; auto-unchecks when type changes away
   - V.LVL spinbox: disabled when Vol Direction is "None"
   - Section 04 layer patches auto-populate from Section 01; multi-zone STLs expand each solid name as a separate patch entry
-- Section 02: geometry unit (mm/m/cm/um/in/ft), nCellsBetweenLevels, location-in-mesh (QDoubleSpinBox) + yellow warning label
+- Section 02: geometry unit (mm/m/cm/um/in/ft), nCellsBetweenLevels, location-in-mesh X/Y/Z (`QDoubleSpinBox`) + yellow warning label + **Suggest point** button — `_suggest_location_in_mesh` scopes the regex search to the `vertices` block of `blockMeshDict` (avoiding false matches on cell-count tuples in the `blocks` entry) and sets the X/Y/Z spinboxes to a point 90 % of the way from the bbox centroid to the max corner
 - Section 03: implicit feature snapping checkbox + explicit-requires-.eMesh note
 - Section 04: add-layers checkbox + per-patch nSurfaceLayers `PlusMinusSpinBox` (auto-populated from Section 01)
 - Section 05: single "Generate Dict & Run snappyHexMesh" button
@@ -164,6 +164,7 @@ Key layout (top to bottom, fixed heights except the stack):
 - All `foamDictionary` calls are wrapped in `bash -c 'source ... && foamDictionary ...'` via `["bash", "-c", cmd]` with `cwd=case_dir` — never uses `os.chdir()`
 - Features block written by direct file manipulation (foamDictionary cannot write list-of-dict syntax)
 - If `addLayers=True`, also writes `fvSchemes` and `fvSolution` for `displacementMotionSolver`
+- Streams `snappyHexMesh` output line-by-line using `line.rstrip('\r')` (strips Windows carriage returns only, preserving trailing newlines for the log drawer)
 - After `snappyHexMesh -overwrite` completes: removes numeric time directories (except `0`), refreshes `<case_name>.foam` sentinel file
 - Raises `RuntimeError` if any `foamDictionary` call returns non-zero exit code
 

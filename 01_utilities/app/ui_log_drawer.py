@@ -274,11 +274,12 @@ class LogDrawer(QWidget):
         }
         fmt.setForeground(QColor(colour_map.get(tag, LOG_FG)))
         cursor.setCharFormat(fmt)
-        cursor.insertText(message)
+        text = message if message.endswith("\n") else message + "\n"
+        cursor.insertText(text)
         self._text.setTextCursor(cursor)
         self._text.ensureCursorVisible()
 
-        self._line_count += message.count("\n")
+        self._line_count += text.count("\n")
         self._count_lbl.setText(f"{self._line_count} lines")
         if self._expanded and self._line_count > 0:
             self._copy_btn.setVisible(True)

@@ -236,7 +236,7 @@ Five-section card form that writes `system/snappyHexMeshDict` via `foamDictionar
 | Section | Content |
 |---------|---------|
 | **01 Geometry** | File table listing all `.stl`/`.obj` files found under `constant/` (any subfolder); set Surface Type (None / Boundary / FaceZone / FaceZone+CellZone), min/max refinement levels, and Volume Direction + level per file; plus a spinbox to add standard analytical shapes (Box, Cylinder, Sphere) with inline coordinate inputs |
-| **02 Castellation** | Geometry unit (mm / m / cm / µm / in / ft), nCellsBetweenLevels, location-in-mesh X Y Z |
+| **02 Castellation** | Geometry unit (mm / m / cm / µm / in / ft), nCellsBetweenLevels, location-in-mesh X Y Z; **Suggest point** auto-fills a corner near the background mesh boundary (90 % from centroid to max corner) — useful for external flow; for internal flow enter a point inside your geometry manually |
 | **03 Snap controls** | Implicit feature snapping toggle |
 | **04 Layer addition** | Enable boundary layers; per-patch nSurfaceLayers spinboxes (auto-populated from Section 01 surface selections) |
 | **05 Generate & Run** | Single **Generate Dict & Run snappyHexMesh** button: writes `system/snappyHexMeshDict` (plus `fvSchemes`/`fvSolution` when layers are on), streams the solver to the log, removes numeric time directories (except `0`), and refreshes the `.foam` file |

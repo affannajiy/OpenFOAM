@@ -639,9 +639,10 @@ class SnappyHexWidget(QWidget):
         body.addLayout(loc_row)
 
         self._location_warn = QLabel(
-            "⚠ REQUIRED: This point must be strictly inside the fluid domain.\n"
-            "Do not leave at (0, 0, 0) — the mesh will fail.\n"
-            "Click ‘Suggest point’ to auto-fill from your background mesh.")
+            "⚠ REQUIRED: Point must be inside the fluid domain — not on a face or edge.\n"
+            "External flow (fluid outside geometry): use a corner near the background mesh boundary.\n"
+            "Internal flow (fluid inside geometry): use a point inside your geometry.\n"
+            "Click ‘Suggest point’ to auto-fill a corner of the background mesh.")
         self._location_warn.setObjectName("location_warn")
         self._location_warn.setStyleSheet("""
             QLabel#location_warn {
@@ -897,11 +898,16 @@ class SnappyHexWidget(QWidget):
             with open(bmd_path, "r") as f:
                 content = f.read()
 
+            # Scope the search to the vertices block to avoid matching cell-count
+            # tuples in the blocks entry (e.g. "(22 22 22)") which inflate the bbox.
+            verts_match = re.search(r'\bvertices\s*\((.*?)\);', content, re.DOTALL)
+            search_text = verts_match.group(1) if verts_match else content
+
             vertices = re.findall(
                 r"\(\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
                 r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
                 r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*\)",
-                content)
+                search_text)
             if not vertices:
                 if self._location_warn:
                     self._location_warn.setText(
@@ -909,16 +915,27 @@ class SnappyHexWidget(QWidget):
                 return
 
             coords = [(float(x), float(y), float(z)) for x, y, z in vertices]
-            cx = (min(c[0] for c in coords) + max(c[0] for c in coords)) / 2
-            cy = (min(c[1] for c in coords) + max(c[1] for c in coords)) / 2
-            cz = (min(c[2] for c in coords) + max(c[2] for c in coords)) / 2
+            min_x = min(c[0] for c in coords); max_x = max(c[0] for c in coords)
+            min_y = min(c[1] for c in coords); max_y = max(c[1] for c in coords)
+            min_z = min(c[2] for c in coords); max_z = max(c[2] for c in coords)
+            cx = (min_x + max_x) / 2
+            cy = (min_y + max_y) / 2
+            cz = (min_z + max_z) / 2
+            # Suggest a point 90 % of the way from the centroid to the max corner.
+            # For external flow this lands in the outer fluid region (outside geometry).
+            # For internal flow manually enter a point inside your geometry instead.
+            px = round(cx + (max_x - cx) * 0.9, 6)
+            py = round(cy + (max_y - cy) * 0.9, 6)
+            pz = round(cz + (max_z - cz) * 0.9, 6)
 
-            self._loc_x_sp.setValue(cx)
-            self._loc_y_sp.setValue(cy)
-            self._loc_z_sp.setValue(cz)
+            self._loc_x_sp.setValue(px)
+            self._loc_y_sp.setValue(py)
+            self._loc_z_sp.setValue(pz)
             if self._location_warn:
                 self._location_warn.setText(
-                    "✓ Suggested centroid set. Adjust if your fluid domain is not centred.")
+                    f"✓ Corner point set: ({px}, {py}, {pz})\n"
+                    "External flow (fluid outside geometry): this outer-region point should work.\n"
+                    "Internal flow (fluid inside geometry): manually enter a point inside your geometry.")
                 self._location_warn.setStyleSheet("""
                     QLabel#location_warn {
                         color: #166534; background: #DCFCE7;

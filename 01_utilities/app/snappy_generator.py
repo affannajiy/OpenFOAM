@@ -520,7 +520,7 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
         cwd=case_dir,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for line in proc.stdout:
-        log_cb(line.rstrip(), "info")
+        log_cb(line.rstrip('\r'), "info")
     rc = proc.wait()
 
     if rc != 0:
