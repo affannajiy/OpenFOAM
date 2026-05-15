@@ -24,7 +24,6 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QLineEdit, QScrollArea, QFrame,
                               QFileDialog, QMessageBox, QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QFont
 
 from ui_shared import (
     KS_RED, BG_APP, BG_CARD, BORDER, TEXT_PRIMARY, TEXT_MUTED,
@@ -447,6 +446,7 @@ class BackgroundMeshWidget(QWidget):
         return ok
 
     def _run(self):
+        """Validate inputs, then start _BgMeshWorker to run surfaceCheck + blockMesh."""
         if self._worker and self._worker.isRunning():
             return
         if not self._validate():

@@ -48,7 +48,7 @@ castellatedMeshControls
     {
         geom
         {
-            level           ( 0 1 );
+            level           ( 2 3 );
             patchInfo
             {
                 type            wall;
@@ -57,14 +57,14 @@ castellatedMeshControls
         }
         inner-cylinder
         {
-            level           ( 0 1 );
+            level           ( 2 3 );
             faceZone        inner-cylinder;
             faceType        internal;
         }
     }
     resolveFeatureAngle 30;
     nCellsBetweenLevels 2;
-    locationInMesh  ( 0 0 0 );
+    locationInMesh  ( 0.495 0.495 0.495 );
     allowFreeStandingZoneFaces true;
 }
 

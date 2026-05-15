@@ -347,6 +347,7 @@ class LogDrawer(QWidget):
             self._anim.start()
 
     def _on_anim_finished(self):
+        """After a collapse animation completes, hide the text area and pin the height."""
         if not self._expanded:
             self._text.setVisible(False)
             self.setFixedHeight(COLLAPSED_H)

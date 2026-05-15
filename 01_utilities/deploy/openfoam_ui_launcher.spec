@@ -4,8 +4,20 @@
 #   pyinstaller openfoam_ui_launcher.spec
 #
 # Or use build_exe.bat which handles icon generation and cleanup automatically.
+#
+# The launcher uses only: tkinter, subprocess, sys, os, time.
+#
+# NOTE: Do NOT exclude stdlib modules here. PyInstaller's own bootloader and
+# runtime hooks (pyi_rth_inspect, etc.) depend on stdlib internals in ways
+# that are not visible from the launcher source. PyInstaller's static analysis
+# already prunes unused stdlib modules automatically. Only exclude third-party
+# packages that the analysis phase might accidentally pull in from the env.
 
 block_cipher = None
+
+_EXCLUDES = [
+    'numpy', 'PyQt5', 'PIL', 'setuptools', 'pkg_resources',
+]
 
 a = Analysis(
     ['../app/openfoam_ui_launcher.py'],
@@ -16,7 +28,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=_EXCLUDES,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

@@ -7,7 +7,7 @@ echo.
 
 cd /d "%~dp0"
 
-echo [1/3] Installing / upgrading PyInstaller...
+echo [1/4] Installing / upgrading PyInstaller...
 pip install --upgrade pyinstaller
 if errorlevel 1 (
     echo ERROR: Failed to install PyInstaller. Check your Python installation.

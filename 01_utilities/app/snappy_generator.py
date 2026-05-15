@@ -64,10 +64,12 @@ def _load_defaults() -> dict:
 
 
 def _fmt_vec(v: list) -> str:
+    """Format a 3-element list as an OpenFOAM vector literal, e.g. '(0.0 1.0 -1.0)'."""
     return f"({v[0]} {v[1]} {v[2]})"
 
 
 def _of_bool(v) -> str:
+    """Convert a Python bool or string to an OpenFOAM boolean literal ('true'/'false')."""
     if isinstance(v, bool):
         return "true" if v else "false"
     s = str(v).lower()
@@ -254,6 +256,7 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
     # ── Inner helpers that close over case_dir / dict_rel / log_cb ───────────────
 
     def _bash(cmd_str: str) -> subprocess.CompletedProcess:
+        """Run cmd_str with the OF environment sourced; closes over case_dir."""
         return subprocess.run(
             ["bash", "-c", f"source {_OF_BASHRC} && {cmd_str}"],
             cwd=case_dir, capture_output=True, text=True)

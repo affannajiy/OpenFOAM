@@ -10,7 +10,6 @@ clicks Continue; MainWindow connects this signal to show_utility().
 import os
 import re
 import json
-import datetime
 from typing import Optional
 
 from PyQt5.QtWidgets import (
@@ -80,6 +79,7 @@ _RECENTS_PATH = os.path.expanduser("~/.openfoam_ui_recents.json")
 
 
 def _load_recents() -> list:
+    """Load the recents list from ~/.openfoam_ui_recents.json; returns [] on any error."""
     try:
         with open(_RECENTS_PATH, "r") as fh:
             data = json.load(fh)
@@ -89,6 +89,7 @@ def _load_recents() -> list:
 
 
 def _save_recents(entries: list):
+    """Persist the recents list to ~/.openfoam_ui_recents.json; silently ignores errors."""
     try:
         with open(_RECENTS_PATH, "w") as fh:
             json.dump(entries, fh, indent=2)
@@ -97,6 +98,7 @@ def _save_recents(entries: list):
 
 
 def _prepend_recent(case_dir: str):
+    """Insert case_dir at the front of the recents list, deduplicating and capping at 10."""
     name = os.path.basename(case_dir)
     entries = [e for e in _load_recents() if e.get("path") != case_dir]
     entries.insert(0, {"name": name, "path": case_dir})
@@ -104,14 +106,16 @@ def _prepend_recent(case_dir: str):
 
 
 def _case_status(path: str) -> str:
+    """Return a short status label for a recent project entry."""
     if os.path.isfile(os.path.join(path, "constant", "polyMesh", "points")):
         return "Meshed"
-    if os.path.isfile(os.path.join(path, "system", "controlDict")):
-        return "Draft"
+    # Both "has controlDict" and "missing controlDict" show as Draft —
+    # the pill colour distinguishes Meshed vs not, not case validity.
     return "Draft"
 
 
 def _write_stub(path: str, content: str):
+    """Write content to path only if the file does not already exist."""
     if not os.path.exists(path):
         with open(path, "w") as fh:
             fh.write(content)
@@ -374,7 +378,6 @@ class LandingWidget(QWidget):
         pf_v.addWidget(self._preview_lbl)
         vbox.addWidget(preview_frame)
 
-    # FIX 1 — widget-per-row recents list with delete button
     def _build_open_existing_form(self, vbox: QVBoxLayout):
         browse_btn = QPushButton("Browse for case folder…")
         browse_btn.setCursor(Qt.PointingHandCursor)
@@ -428,6 +431,12 @@ class LandingWidget(QWidget):
         self._rebuild_recents_list()
 
     def _rebuild_recents_list(self):
+        """Repopulate the recents scroll area from self._recents.
+
+        Resets _selected_row_frame, then re-highlights the row whose path
+        matches self._open_path so selection state survives a full rebuild
+        (e.g. after deleting an entry or switching mode).
+        """
         self._selected_row_frame = None
         while self._recents_vbox.count():
             item = self._recents_vbox.takeAt(0)
@@ -509,6 +518,9 @@ class LandingWidget(QWidget):
         row_h.addWidget(pill)
         row_h.addWidget(del_btn)
 
+        # Assign the click handler directly rather than subclassing QFrame —
+        # each row is a plain QFrame created dynamically, and monkey-patching
+        # mousePressEvent is the simplest way to bind per-row data (path, frame).
         row_frame.mousePressEvent = (
             lambda _event, p=path, f=row_frame: self._on_recent_row_click(p, f)
         )
@@ -544,7 +556,6 @@ class LandingWidget(QWidget):
 
     # ── Utility card ──────────────────────────────────────────────────────────
 
-    # FIX 3 — left-aligned ENVIRONMENT section
     def _build_utility_card(self, body: QVBoxLayout):
         self._util_frames: list[QFrame] = []
 
@@ -598,7 +609,6 @@ class LandingWidget(QWidget):
         body.addLayout(env_row)
         body.addStretch()
 
-    # FIX 2 — border:none on all child labels; objectName-scoped card QSS
     def _make_util_selector(self, uid: int, title: str, chip: str, desc: str) -> QFrame:
         card = QFrame()
         card.setObjectName(f"util_card_{uid}")
@@ -777,6 +787,9 @@ class LandingWidget(QWidget):
         self._update_continue_state()
 
     def _update_continue_state(self):
+        # Continue is always enabled — input validation runs in _on_continue,
+        # not here.  This hook exists so subclasses or future revisions can
+        # enable/disable the button reactively without changing _on_continue.
         pass
 
     # ── Continue action ───────────────────────────────────────────────────────

@@ -55,6 +55,10 @@ _GEOM_UNITS = ["mm", "m", "cm", "um", "in", "ft"]
 _SURF_TYPES = ["None", "Boundary", "FaceZone"]
 _VOL_DIRS   = ["None", "Inside", "Outside"]
 
+# Pre-computed at import time so _make_coord_spinbox avoids a string replace
+# on every spinbox creation (locationInMesh × 3, plus 3–9 per added shape).
+_STYLE_DSPINBOX = f"QDoubleSpinBox {{ {STYLE_ENTRY.replace('QLineEdit', 'QDoubleSpinBox')} }}"
+
 
 # ── Worker thread ─────────────────────────────────────────────────────────────────
 
@@ -100,7 +104,13 @@ class SnappyHexWidget(QWidget):
         self._shape_widgets: list = []
         # patch_name → PlusMinusSpinBox (nSurfaceLayers)
         self._layer_patch_widgets: dict = {}
+        # full_path → list[str] zone names; avoids re-reading STL files on every
+        # Surface Type change or layer-patch refresh within the same session.
+        self._zone_name_cache: dict = {}
 
+        # Widget references set to None before _build() runs.  Methods called
+        # during construction (e.g. _refresh_file_list → _refresh_layer_patches)
+        # guard with "if self._xxx" so they are safe before the widgets exist.
         self._cwd_lbl               = None
         self._file_table_layout     = None
         self._num_shapes_sp         = None
@@ -222,11 +232,7 @@ class SnappyHexWidget(QWidget):
         sp.setDecimals(6)
         sp.setValue(0.0)
         sp.setFixedWidth(100)
-        sp.setStyleSheet(
-            f"QDoubleSpinBox {{ {STYLE_ENTRY.replace('QLineEdit', 'QDoubleSpinBox')} }}"
-            if "QLineEdit" in STYLE_ENTRY else
-            f"background: white; border: 1px solid {BORDER}; border-radius: 3px;"
-            f" padding: 2px 6px; font-size: 13px; color: {TEXT_PRIMARY};")
+        sp.setStyleSheet(_STYLE_DSPINBOX)
         return sp
 
     # ── Section 1: Geometry ────────────────────────────────────────────────────────
@@ -401,6 +407,9 @@ class SnappyHexWidget(QWidget):
 
             self._file_table_layout.addWidget(row_w)
 
+            # Default-argument capture (cb=cell_zone_cb, sp=vol_level_sp) binds
+            # the current iteration's widget to the closure.  Without it every
+            # lambda would share the last iteration's widget when invoked later.
             def _update_cz(text, cb=cell_zone_cb):
                 enabled = (text == "FaceZone")
                 cb.setEnabled(enabled)
@@ -621,11 +630,11 @@ class SnappyHexWidget(QWidget):
         body.addWidget(self._label_small("LOCATION IN MESH  (x, y, z)"))
         loc_row = QHBoxLayout()
         self._loc_x_sp = self._make_coord_spinbox()
-        self._loc_x_sp.setValue(0.001)
+        self._loc_x_sp.setValue(0.000)
         self._loc_y_sp = self._make_coord_spinbox()
-        self._loc_y_sp.setValue(0.001)
+        self._loc_y_sp.setValue(0.000)
         self._loc_z_sp = self._make_coord_spinbox()
-        self._loc_z_sp.setValue(0.001)
+        self._loc_z_sp.setValue(0.000)
         for sp, ph in [(self._loc_x_sp, "x"), (self._loc_y_sp, "y"), (self._loc_z_sp, "z")]:
             sp.setPrefix(f"{ph}: ")
         loc_row.addWidget(self._loc_x_sp)
@@ -720,7 +729,9 @@ class SnappyHexWidget(QWidget):
 
             stem = os.path.splitext(fname)[0]
             if fname.lower().endswith(".stl") and os.path.isfile(full_path):
-                zones = get_stl_zone_names(full_path)
+                if full_path not in self._zone_name_cache:
+                    self._zone_name_cache[full_path] = get_stl_zone_names(full_path)
+                zones = self._zone_name_cache[full_path]
                 if len(zones) > 1:
                     patches.extend(zones)
                     continue
@@ -818,6 +829,7 @@ class SnappyHexWidget(QWidget):
     # ── Banner / status helpers ────────────────────────────────────────────────────
 
     def _scan_time_dirs(self) -> list:
+        """Return a sorted list of non-zero numeric time directories in the case root."""
         try:
             dirs = []
             for e in os.listdir(self._cwd):
@@ -832,6 +844,7 @@ class SnappyHexWidget(QWidget):
             return []
 
     def _update_time_dirs(self):
+        """Refresh the Section 05 time-directory label from the current case root."""
         if not self._time_dirs_lbl:
             return
         dirs = self._scan_time_dirs()
@@ -841,6 +854,7 @@ class SnappyHexWidget(QWidget):
             self._time_dirs_lbl.setText("No time directories found.")
 
     def _update_dict_banner(self):
+        """Show a warning banner in Section 05 listing files that will be overwritten."""
         if not self._dict_banner:
             return
         will = []
@@ -861,6 +875,7 @@ class SnappyHexWidget(QWidget):
         """Called by MainWindow when the user picks a project on the landing page."""
         case_dir = to_wsl_path(case_dir)
         self._cwd = case_dir
+        self._zone_name_cache.clear()   # new case may have different STL contents
         if self._cwd_lbl:
             self._cwd_lbl.setText(case_dir)
         self._refresh_file_list()
@@ -873,6 +888,7 @@ class SnappyHexWidget(QWidget):
             return
         d = to_wsl_path(d)
         self._cwd = d
+        self._zone_name_cache.clear()
         self._cwd_lbl.setText(d)
         if not os.path.isdir(os.path.join(d, "constant")) or not os.path.isdir(os.path.join(d, "system")):
             QMessageBox.warning(
@@ -1058,6 +1074,9 @@ class SnappyHexWidget(QWidget):
         msg   = "Done" if success else "Error — check log"
         self._log.write(f"[snappyHexMesh] {msg}\n", tag)
         self._log.status_changed.emit(msg, color)
+        # Auto-launch ParaView: both the executable and the .foam sentinel file
+        # live on the Windows side, so WSL paths must be converted to Windows
+        # UNC format via 'wslpath -w' before handing them to cmd.exe.
         if success and self._open_paraview_cb and self._open_paraview_cb.isChecked():
             pv_exe = find_paraview_exe()
             if pv_exe:

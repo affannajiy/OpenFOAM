@@ -271,6 +271,7 @@ STYLE_SCROLL = f"""
 # ── PlusMinusSpinBox ──────────────────────────────────────────────────────────
 
 def _pm_btn_ss(border_radius: str) -> str:
+    """Return the QSS for a PlusMinusSpinBox − or + button with the given border-radius."""
     return (
         f"QPushButton {{ background: {BG_SUBTLE}; color: {TEXT_PRIMARY}; border: none;"
         f" font-family: 'Segoe UI'; font-size: 15px; font-weight: 700; padding: 0px;"
@@ -506,6 +507,10 @@ def get_stl_zone_names(path: str) -> list:
         return []
 
 
+_pv_exe_searched: bool = False
+_pv_exe_cache: Optional[str] = None
+
+
 def find_paraview_exe() -> Optional[str]:
     """
     Find the newest installed ParaView executable visible from WSL.
@@ -514,9 +519,17 @@ def find_paraview_exe() -> Optional[str]:
     From WSL that path appears under /mnt/c/.  We glob for all versions and
     return the lexicographically last one, which corresponds to the highest
     version number because the directory names are versioned (e.g. ParaView-5.12).
+
+    The result is cached on the first call so repeated lookups during the same
+    session (landing page hero, utility card, Open ParaView button, post-run
+    auto-launch) incur only one filesystem glob.
     """
-    matches = sorted(glob.glob("/mnt/c/Program Files/ParaView*/bin/paraview.exe"))
-    return matches[-1] if matches else None
+    global _pv_exe_searched, _pv_exe_cache
+    if not _pv_exe_searched:
+        matches = sorted(glob.glob("/mnt/c/Program Files/ParaView*/bin/paraview.exe"))
+        _pv_exe_cache = matches[-1] if matches else None
+        _pv_exe_searched = True
+    return _pv_exe_cache
 
 
 def run_of_command(cmd: str, cwd: str, log_callback: Callable) -> int:

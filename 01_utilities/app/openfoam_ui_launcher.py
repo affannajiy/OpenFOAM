@@ -96,6 +96,7 @@ class _Splash:
         self.root.update()
 
     def _build(self):
+        """Build the splash layout: red accent bar, logo/title row, status label, progress bar."""
         tk.Frame(self.root, bg=self._RED, height=5).pack(fill='x')
 
         body = tk.Frame(self.root, bg=self._BG)
@@ -163,7 +164,15 @@ class _Splash:
 
 
 def _run_checks(splash):
-    """Run all pre-flight checks. Returns (ok, error_title, error_message)."""
+    """Run all pre-flight checks. Returns (ok, error_title, error_message).
+
+    Checks 1 and 2 each require one WSL subprocess call (WSL reachable, then
+    display available).  Checks 3–5 (OF bashrc, python3, packages) are batched
+    into a single bash script so only one more WSL process is started instead of
+    4+.  Check 6 (openfoam_ui.py present) is a local file test — no WSL needed.
+
+    Total WSL subprocess launches: 3 (down from 6+ in the sequential version).
+    """
     n = 6
     step = [0]
 
@@ -218,22 +227,44 @@ def _run_checks(splash):
             'Contact your IT administrator if the problem persists.'
         )
 
-    # ── 3. OpenFOAM bashrc ────────────────────────────────────────────────────
+    # ── 3+4+5. OF bashrc + python3 + packages — single WSL call ──────────────
+    # Output format: "<of_rc> <py_rc> [pkg1 pkg2 ...]"
+    #   of_rc 0 = 2506 found; 1 = neither found; 2 = only 2312 found
+    #   py_rc 0 = python3 OK; 1 = missing
+    #   remainder = space-separated names of packages that failed import
     tick('Checking OpenFOAM installation…')
-    rc_2506, _, _ = _wsl(f'test -f {_FOAM_BASHRC_2506}', timeout=10)
-    if rc_2506 != 0:
-        rc_2312, _, _ = _wsl(f'test -f {_FOAM_BASHRC_2312}', timeout=10)
-        if rc_2312 == 0:
-            return False, 'Wrong OpenFOAM Version Installed', (
-                'OpenFOAM v2312 was found, but this tool requires v2506.\n\n'
-                f'Found:    {_FOAM_BASHRC_2312}\n'
-                f'Required: {_FOAM_BASHRC_2506}\n\n'
-                'Fix: install OpenFOAM 2506 inside WSL.\n'
-                'Installation guide (Debian/Ubuntu packages):\n'
-                '  https://develop.openfoam.com/Development/openfoam\n'
-                '  → Precompiled packages → Debian/Ubuntu\n\n'
-                'Contact your system administrator if you cannot install software.'
-            )
+    pkgs = ' '.join(_REQUIRED_PACKAGES)
+    batch_script = (
+        f'of=0; '
+        f'test -f {_FOAM_BASHRC_2506} || {{ of=1; test -f {_FOAM_BASHRC_2312} && of=2; }}; '
+        f'py=0; python3 --version >/dev/null 2>&1 || py=1; '
+        f'miss=""; '
+        f'for p in {pkgs}; do python3 -c "import $p" 2>/dev/null || miss="$miss $p"; done; '
+        f'printf "%d %d%s" $of $py "$miss"'
+    )
+    rc, out, _ = _wsl(batch_script, timeout=30)
+
+    # Parse the single-line output; fall back to "everything failed" on error.
+    parts    = out.strip().split(None, 2) if rc == 0 else []
+    of_rc    = int(parts[0]) if len(parts) > 0 else 1
+    py_rc    = int(parts[1]) if len(parts) > 1 else 1
+    missing  = parts[2].split() if len(parts) > 2 else []
+
+    # Advance the progress bar for the two logical steps covered by the batch.
+    tick('Checking Python 3…')
+
+    if of_rc == 2:
+        return False, 'Wrong OpenFOAM Version Installed', (
+            'OpenFOAM v2312 was found, but this tool requires v2506.\n\n'
+            f'Found:    {_FOAM_BASHRC_2312}\n'
+            f'Required: {_FOAM_BASHRC_2506}\n\n'
+            'Fix: install OpenFOAM 2506 inside WSL.\n'
+            'Installation guide (Debian/Ubuntu packages):\n'
+            '  https://develop.openfoam.com/Development/openfoam\n'
+            '  → Precompiled packages → Debian/Ubuntu\n\n'
+            'Contact your system administrator if you cannot install software.'
+        )
+    if of_rc != 0:
         return False, 'OpenFOAM Not Found', (
             f'OpenFOAM v2506 was not found at:\n'
             f'  {_FOAM_BASHRC_2506}\n\n'
@@ -243,11 +274,7 @@ def _run_checks(splash):
             '  → Precompiled packages → Debian/Ubuntu\n\n'
             'Contact your system administrator if you cannot install software.'
         )
-
-    # ── 4. python3 in WSL ────────────────────────────────────────────────────
-    tick('Checking Python 3…')
-    rc, _, _ = _wsl('python3 --version', timeout=10)
-    if rc != 0:
+    if py_rc != 0:
         return False, 'Python 3 Not Found in WSL', (
             'python3 is not available inside WSL.\n\n'
             'Fix: open a WSL terminal and run:\n'
@@ -256,14 +283,7 @@ def _run_checks(splash):
             'Then run this launcher again.'
         )
 
-    # ── 5. Required Python packages ───────────────────────────────────────────
     tick('Checking Python packages…')
-    missing = []
-    for pkg in _REQUIRED_PACKAGES:
-        rc, _, _ = _wsl(f'python3 -c "import {pkg}"', timeout=15)
-        if rc != 0:
-            missing.append(pkg)
-
     if missing:
         pkg_str = ' '.join(missing)
         bullets = '\n'.join(f'  • {p}' for p in missing)
@@ -299,7 +319,7 @@ def _run_checks(splash):
                 'Then run this launcher again.'
             )
 
-    # ── 6. openfoam_ui.py present ─────────────────────────────────────────────
+    # ── 6. openfoam_ui.py present — local file check, no WSL needed ──────────
     tick('Checking application files…')
     ui_py = os.path.join(_get_exe_dir(), 'openfoam_ui.py')
     if not os.path.isfile(ui_py):
@@ -315,6 +335,7 @@ def _run_checks(splash):
 
 
 def main():
+    """Show the splash, run pre-flight checks, then launch openfoam_ui.py inside WSL."""
     splash = _Splash()
 
     ok, title, msg = _run_checks(splash)
