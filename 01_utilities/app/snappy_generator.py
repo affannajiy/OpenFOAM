@@ -100,6 +100,30 @@ def _find_file_in_constant(fname: str, constant_dir: str) -> str | None:
     return None
 
 
+def _mesh_name_for_stl(fname: str, const_dir: str) -> tuple[str, list]:
+    """
+    Pick the OpenFOAM mesh/patch name for an STL file plus its zone list.
+
+    If the STL has exactly one named solid (e.g. `solid external-walls`), use
+    that solid name — OpenFOAM derives the patch name from the STL solid, not
+    the filename, so the dict must reference the solid name to connect
+    geometry → refinementSurfaces → boundary patch.
+
+    Falls back to the filename stem for multi-zone STLs (handled per-region),
+    files with a single unnamed solid, and non-STL geometry.
+    """
+    stem = os.path.splitext(fname)[0]
+    if not fname.lower().endswith(".stl"):
+        return stem, []
+    path = _find_file_in_constant(fname, const_dir)
+    if not path:
+        return stem, []
+    zones = _get_stl_zone_names(path)
+    if len(zones) == 1 and zones[0] != "Unnamed":
+        return zones[0], zones
+    return stem, zones
+
+
 def _write_header(dict_path: str, geometry_unit: str) -> None:
     with open(dict_path, "w") as f:
         f.write("/*--------------------------------*- C++ -*----------------------------------*\\\n")
@@ -212,6 +236,56 @@ solvers
         log_cb(f"[layers] Wrote system/{fname}", "info")
 
 
+def validate_config(config: dict) -> None:
+    """
+    Check the GUI config for common misconfigurations that produce broken or
+    empty meshes, and raise ValueError with a human-readable message.
+
+    Catches errors the UI cannot easily express as widget constraints:
+      • locationInMesh == (0, 0, 0)  — almost always landing on a face/edge
+      • no STL has surface_type != "none"  — nothing for snapping to attach to
+      • every STL has vol_direction == "outside"  — likely a misuse of the field
+      • surface_max < surface_min  — refinement levels are inverted
+
+    Called at the start of generate_and_run() so backend invocations from
+    scripts (not just the GUI) get the same guard.
+    """
+    files = config.get("geometry", {}).get("files", [])
+    cast  = config.get("castellated", {})
+
+    loc = cast.get("locationInMesh", [0.0, 0.0, 0.0])
+    if all(float(c) == 0.0 for c in loc):
+        raise ValueError(
+            "locationInMesh is (0, 0, 0) — this will almost always land on a face "
+            "or edge and snappyHexMesh will discard the mesh.\n"
+            "Use the 'Suggest point' button or enter a point strictly inside "
+            "your fluid domain.")
+
+    for f in files:
+        smin = f.get("surface_min", 0)
+        smax = f.get("surface_max", 0)
+        if f.get("surface_type", "none").lower() != "none" and smax < smin:
+            raise ValueError(
+                f"{f.get('filename', '?')}: S.Max ({smax}) must be >= S.Min ({smin}).")
+
+    has_surface = any(
+        f.get("surface_type", "none").lower() != "none" for f in files)
+    if files and not has_surface:
+        raise ValueError(
+            "No STL has a Surface Type set — snappyHexMesh has no patches to snap "
+            "to and will produce an empty mesh.\n"
+            "Set at least one file to Surface Type = Boundary in Section 01.")
+
+    vol_dirs = [f.get("vol_direction", "none").lower() for f in files]
+    non_none = [v for v in vol_dirs if v != "none"]
+    if non_none and all(v == "outside" for v in non_none):
+        raise ValueError(
+            "Every STL with a Vol Direction is set to Outside — this is almost "
+            "always wrong.\n"
+            "For an outer domain box, use Vol Direction = None.\n"
+            "For a solid body in fluid, use Vol Direction = Inside.")
+
+
 def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
     """
     Generate snappyHexMeshDict and run snappyHexMesh in one shot.
@@ -231,6 +305,8 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
     bool
         True if snappyHexMesh exited with code 0, False otherwise.
     """
+    validate_config(config)
+
     defaults = _load_defaults()
     dc = defaults.get("castellatedMeshControls", {})
     ds = defaults.get("snapControls", {})
@@ -301,21 +377,19 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
 
     for finfo in files_cfg:
         fname = finfo["filename"]
-        stem  = os.path.splitext(fname)[0]
+        mesh_name, zones = _mesh_name_for_stl(fname, const_dir)
+        finfo["_mesh_name"] = mesh_name
+        finfo["_zones"]     = zones
 
         fd(f"geometry/{fname}",      '"{}"')
         fd(f"geometry/{fname}/type", "triSurfaceMesh")
-        fd(f"geometry/{fname}/name", stem)
+        fd(f"geometry/{fname}/name", mesh_name)
 
-        if fname.lower().endswith(".stl"):
-            stl_path = _find_file_in_constant(fname, const_dir)
-            if stl_path:
-                zones = _get_stl_zone_names(stl_path)
-                if len(zones) > 1:
-                    fd(f"geometry/{fname}/regions", '"{}"')
-                    for zone in zones:
-                        fd(f"geometry/{fname}/regions/{zone}",      '"{}"')
-                        fd(f"geometry/{fname}/regions/{zone}/name", zone)
+        if len(zones) > 1:
+            fd(f"geometry/{fname}/regions", '"{}"')
+            for zone in zones:
+                fd(f"geometry/{fname}/regions/{zone}",      '"{}"')
+                fd(f"geometry/{fname}/regions/{zone}/name", zone)
 
     # ── Geometry: standard shapes ────────────────────────────────────────────────
     for shape in shapes_cfg:
@@ -357,10 +431,13 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
     _inject_features_block(dict_path, edge_files, log_cb)
 
     # ── refinementRegions ────────────────────────────────────────────────────────
-    fd("castellatedMeshControls/refinementRegions", '"{}"')
-
+    # Collect entries first so the parent dict and children are written in a single
+    # pass — keeps the structure obvious and avoids any chance of the foamDictionary
+    # "-add into an existing empty dict" edge case some OF builds have.
+    region_entries: list = []   # (name, mode, level)
     for finfo in files_cfg:
-        stem      = os.path.splitext(finfo["filename"])[0]
+        fname     = finfo["filename"]
+        mesh_name = finfo.get("_mesh_name") or os.path.splitext(fname)[0]
         surf_type = finfo.get("surface_type", "none").lower()
         cell_zone = finfo.get("cell_zone", False)
         vol_dir   = finfo.get("vol_direction", "none").lower()
@@ -369,11 +446,14 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
         force_inside = (surf_type == "facezone" and cell_zone and vol_dir == "none")
         if vol_dir == "none" and not force_inside:
             continue
+        if vol_dir == "outside":
+            log_cb(
+                f"[warn] {fname}: vol_direction=outside refines cells OUTSIDE this surface. "
+                "For an outer domain box this is almost certainly wrong — use vol_direction=None.",
+                "warn")
         mode  = vol_dir if vol_dir != "none" else "inside"
         level = finfo.get("vol_level", 1)
-        fd(f"castellatedMeshControls/refinementRegions/{stem}",        '"{}"')
-        fd(f"castellatedMeshControls/refinementRegions/{stem}/mode",   mode)
-        fd(f"castellatedMeshControls/refinementRegions/{stem}/levels", f'"((1.0 {level}))"')
+        region_entries.append((mesh_name, mode, level))
 
     for shape in shapes_cfg:
         name    = shape["name"]
@@ -382,6 +462,10 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
             continue
         mode  = "inside" if vol_dir == "inside" else "outside"
         level = shape.get("vol_level", 1)
+        region_entries.append((name, mode, level))
+
+    fd("castellatedMeshControls/refinementRegions", '"{}"')
+    for name, mode, level in region_entries:
         fd(f"castellatedMeshControls/refinementRegions/{name}",        '"{}"')
         fd(f"castellatedMeshControls/refinementRegions/{name}/mode",   mode)
         fd(f"castellatedMeshControls/refinementRegions/{name}/levels", f'"((1.0 {level}))"')
@@ -391,7 +475,8 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
 
     for finfo in files_cfg:
         fname     = finfo["filename"]
-        stem      = os.path.splitext(fname)[0]
+        mesh_name = finfo.get("_mesh_name") or os.path.splitext(fname)[0]
+        zones     = finfo.get("_zones", [])
         surf_type = finfo.get("surface_type", "none").lower()
         cell_zone = finfo.get("cell_zone", False)
         smin      = finfo.get("surface_min", 0)
@@ -400,26 +485,19 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
         if surf_type == "none":
             continue
 
-        # Check for multi-zone STL
-        zones = []
-        if fname.lower().endswith(".stl"):
-            stl_path = _find_file_in_constant(fname, const_dir)
-            if stl_path:
-                zones = _get_stl_zone_names(stl_path)
-
-        fd(f"castellatedMeshControls/refinementSurfaces/{stem}",       '"{}"')
-        fd(f"castellatedMeshControls/refinementSurfaces/{stem}/level", f'"({smin} {smax})"')
+        fd(f"castellatedMeshControls/refinementSurfaces/{mesh_name}",       '"{}"')
+        fd(f"castellatedMeshControls/refinementSurfaces/{mesh_name}/level", f'"({smin} {smax})"')
 
         if len(zones) > 1:
-            fd(f"castellatedMeshControls/refinementSurfaces/{stem}/regions", '"{}"')
+            fd(f"castellatedMeshControls/refinementSurfaces/{mesh_name}/regions", '"{}"')
             for zone in zones:
-                base = f"castellatedMeshControls/refinementSurfaces/{stem}/regions/{zone}"
+                base = f"castellatedMeshControls/refinementSurfaces/{mesh_name}/regions/{zone}"
                 fd(base,          '"{}"')
                 fd(f"{base}/level", f'"({smin} {smax})"')
-                _write_surface_patch_info(fd, base, surf_type, cell_zone, zone, stem)
+                _write_surface_patch_info(fd, base, surf_type, cell_zone, zone, mesh_name)
         else:
-            base = f"castellatedMeshControls/refinementSurfaces/{stem}"
-            _write_surface_patch_info(fd, base, surf_type, cell_zone, stem, stem)
+            base = f"castellatedMeshControls/refinementSurfaces/{mesh_name}"
+            _write_surface_patch_info(fd, base, surf_type, cell_zone, mesh_name, mesh_name)
 
     # ── CastellatedMeshControls: remaining controls ──────────────────────────────
     ncbl = cast_cfg.get("nCellsBetweenLevels", dc.get("nCellsBetweenLevels", 2))

@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFrame, QFileDialog, QMessageBox, QComboBox,
     QCheckBox, QSizePolicy, QDoubleSpinBox,
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 
 from ui_shared import (
     KS_RED, BG_APP, BG_CARD, BG_SUBTLE, BORDER, BORDER_SOFT,
@@ -247,8 +247,11 @@ class SnappyHexWidget(QWidget):
         body.addWidget(desc)
 
         level_hint = QLabel(
-            "S.Min / S.Max: Min = cells touching surface edges, Max = cells inside surface. "
-            "Start with (1, 2) for outer walls; use (2, 4) for detailed inner geometry.")
+            "S.Min / S.Max: both values set the min and max refinement level on this surface. "
+            "Use the SAME value for both (e.g. 2,2) for uniform refinement. "
+            "Use different values (e.g. 1,3) only when you want coarser cells away from edges "
+            "and finer cells at surface edges. For most heat-simulation cases, use (2,2) for all "
+            "surfaces to get consistent mesh density.")
         level_hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; background: transparent;")
         level_hint.setWordWrap(True)
         body.addWidget(level_hint)
@@ -262,6 +265,11 @@ class SnappyHexWidget(QWidget):
 
         refresh_btn = QPushButton("Refresh file list")
         refresh_btn.setStyleSheet(STYLE_BTN_SMALL_GHOST)
+        refresh_btn.setToolTip(
+            "Re-scan constant/triSurface/ for STL/OBJ files.\n"
+            "Use after copying new geometry files into the case.\n"
+            "Your Surface Type, refinement levels, and Vol Dir\n"
+            "settings are preserved for files already in the list.")
         refresh_btn.clicked.connect(self._refresh_file_list)
         body.addWidget(refresh_btn, alignment=Qt.AlignLeft)
 
@@ -271,6 +279,11 @@ class SnappyHexWidget(QWidget):
         self._num_shapes_sp = PlusMinusSpinBox()
         self._num_shapes_sp.setRange(0, 20)
         self._num_shapes_sp.setFixedWidth(70)
+        self._num_shapes_sp.setToolTip(
+            "Add searchable geometric shapes as volume refinement regions.\n"
+            "These do NOT create wall patches — refinement volume only.\n"
+            "Useful for refining a specific region of space without an STL.\n"
+            "Supported: Box (searchableBox), Sphere, Cylinder.")
         self._num_shapes_sp.valueChanged.connect(self._refresh_shape_fields)
         shapes_row.addWidget(shapes_lbl)
         shapes_row.addWidget(self._num_shapes_sp)
@@ -283,9 +296,27 @@ class SnappyHexWidget(QWidget):
         self._shapes_container_layout.setContentsMargins(0, 0, 0, 0)
         body.addWidget(self._shapes_container_w)
 
-        self._refresh_file_list()
+        # First build — no prior values to preserve, so skip the snapshot/banner.
+        self._refresh_file_list(_preserve=False)
 
-    def _refresh_file_list(self):
+    def _refresh_file_list(self, _preserve: bool = True):
+        # Snapshot existing per-row values BEFORE destroying widgets so the user's
+        # Surface Type / refinement / Vol Dir choices survive a refresh.  Without
+        # this, every call rebuilt widgets at defaults — silently wiping Vol Dir
+        # before Generate ran, which is what caused refinementRegions to come out
+        # empty even after the backend fix.
+        saved: dict = {}
+        if _preserve:
+            for fname, _full_path, w in self._file_rows:
+                saved[fname] = {
+                    "surf_type": w["surf_type_combo"].currentText(),
+                    "cell_zone": w["cell_zone_cb"].isChecked(),
+                    "surf_min":  w["surf_min_sp"].value(),
+                    "surf_max":  w["surf_max_sp"].value(),
+                    "vol_dir":   w["vol_dir_combo"].currentText(),
+                    "vol_level": w["vol_level_sp"].value(),
+                }
+
         while self._file_table_layout.count():
             item = self._file_table_layout.takeAt(0)
             if item.widget():
@@ -333,12 +364,28 @@ class SnappyHexWidget(QWidget):
                 lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             return lbl
 
-        hdr_row.addWidget(_hdr("FILE"))
-        hdr_row.addWidget(_hdr("SURFACE TYPE", 120))
+        file_hdr = _hdr("FILE")
+        file_hdr.setToolTip(
+            "STL/OBJ geometry files found in constant/triSurface/\n"
+            "Each file = one surface. Add STL files to constant/triSurface/\n"
+            "then click 'Refresh file list' to see them here.")
+        hdr_row.addWidget(file_hdr)
+        st_hdr = _hdr("SURFACE TYPE", 120)
+        st_hdr.setToolTip(
+            "None     = no wall patch, geometry used for volume refinement only\n"
+            "Boundary = solid wall (outer box, cylinders, fins, heat sinks)\n"
+            "FaceZone = internal face interface (MRF, CHT) — NOT for solid walls")
+        hdr_row.addWidget(st_hdr)
         hdr_row.addWidget(_hdr("CELL ZONE", 70))
         hdr_row.addWidget(_hdr("S.MIN", 60))
         hdr_row.addWidget(_hdr("S.MAX", 60))
-        hdr_row.addWidget(_hdr("VOL DIR", 94))
+        vol_hdr = _hdr("VOL DIR", 94)
+        vol_hdr.setToolTip(
+            "Volume refinement direction — adds finer cells in a region:\n"
+            "None   = no volume refinement (use for outer domain boxes)\n"
+            "Inside = refine cells INSIDE this surface (use for solid bodies)\n"
+            "Outside = refine cells OUTSIDE this surface (rare, external flow)")
+        hdr_row.addWidget(vol_hdr)
         hdr_row.addWidget(_hdr("V.LVL", 60))
         self._file_table_layout.addWidget(hdr)
 
@@ -360,9 +407,14 @@ class SnappyHexWidget(QWidget):
             surf_type_combo = QComboBox()
             surf_type_combo.addItems(_SURF_TYPES)
             surf_type_combo.setToolTip(
-                "None — geometry present but no surface refinement applied\n"
-                "Boundary — solid walls, obstacles, domain boundaries (most common)\n"
-                "FaceZone — internal interfaces, MRF zones, CHT solid regions")
+                "None      — no wall patch created\n"
+                "            Use for: pure volume refinement shapes\n\n"
+                "Boundary  — creates a wall patch (most common choice)\n"
+                "            Use for: outer domain box, cylinders, fins,\n"
+                "            heat sinks, any solid body touching the fluid\n\n"
+                "FaceZone  — internal face interface only, NOT a solid wall\n"
+                "            Use for: MRF rotating zones, CHT interfaces\n"
+                "            Do NOT use for solid bodies — use Boundary")
             surf_type_combo.setStyleSheet(STYLE_COMBO)
             surf_type_combo.setFixedWidth(120)
             row_layout.addWidget(surf_type_combo)
@@ -376,7 +428,11 @@ class SnappyHexWidget(QWidget):
             cell_zone_cb = QCheckBox()
             cell_zone_cb.setStyleSheet(STYLE_CHECKBOX)
             cell_zone_cb.setEnabled(False)
-            cell_zone_cb.setToolTip("Add cell zone (only for FaceZone surface type)")
+            cell_zone_cb.setToolTip(
+                "Only active when Surface Type = FaceZone.\n"
+                "Creates a named cellZone inside this closed surface.\n"
+                "Required for MRF and CHT multi-region setups.\n"
+                "Leave unchecked for standard single-fluid meshing.")
             cz_wlayout.addWidget(cell_zone_cb)
             row_layout.addWidget(cz_wrapper)
 
@@ -384,18 +440,37 @@ class SnappyHexWidget(QWidget):
             surf_min_sp.setRange(0, 10)
             surf_min_sp.setValue(1)
             surf_min_sp.setFixedWidth(60)
+            surf_min_sp.setToolTip(
+                "Minimum surface refinement level (cells touching surface edges).\n"
+                "Level 0 = background cell size. Each level halves the cell size.\n"
+                "For uniform refinement: set equal to S.Max.\n"
+                "Typical: 1–2 for outer walls, 2–4 for detailed inner geometry.")
             row_layout.addWidget(surf_min_sp)
 
             surf_max_sp = PlusMinusSpinBox()
             surf_max_sp.setRange(0, 10)
             surf_max_sp.setValue(2)
             surf_max_sp.setFixedWidth(60)
+            surf_max_sp.setToolTip(
+                "Maximum surface refinement level (cells ON the surface).\n"
+                "Must be >= S.Min. Higher than S.Min adds extra refinement\n"
+                "at curvature and feature edges.\n"
+                "Flat surfaces (box walls): set equal to S.Min.\n"
+                "Curved surfaces (cylinders): S.Max = S.Min + 1.")
             row_layout.addWidget(surf_max_sp)
 
             vol_dir_combo = QComboBox()
             vol_dir_combo.addItems(_VOL_DIRS)
             vol_dir_combo.setStyleSheet(STYLE_COMBO)
             vol_dir_combo.setFixedWidth(94)
+            vol_dir_combo.setToolTip(
+                "None    — no volume refinement for this surface\n"
+                "          ✓ Outer domain box (geom.stl, outer-domain.stl)\n\n"
+                "Inside  — refine all cells inside this closed surface\n"
+                "          ✓ Solid bodies: cylinders, pins, fins, heat sources\n"
+                "          V.Lvl sets how fine — match S.Min for smooth transition\n\n"
+                "Outside — refine cells OUTSIDE this surface (rarely needed)\n"
+                "          ✗ Do NOT use on the outer domain box")
             row_layout.addWidget(vol_dir_combo)
 
             vol_level_sp = PlusMinusSpinBox()
@@ -403,6 +478,11 @@ class SnappyHexWidget(QWidget):
             vol_level_sp.setValue(1)
             vol_level_sp.setFixedWidth(60)
             vol_level_sp.setEnabled(False)   # enabled only when vol dir is not "None"
+            vol_level_sp.setToolTip(
+                "Volume refinement level inside/outside this surface.\n"
+                "Only active when Vol Dir is not None.\n"
+                "Set >= S.Min of this surface for smooth mesh transitions.\n"
+                "Example: S.Min=2 → set V.Lvl=2 or higher.")
             row_layout.addWidget(vol_level_sp)
 
             self._file_table_layout.addWidget(row_w)
@@ -429,11 +509,43 @@ class SnappyHexWidget(QWidget):
             }
             self._file_rows.append((fname, file_paths[fname], widgets))
 
+            # Restore preserved values BEFORE connecting signals so setCurrentIndex
+            # and setValue calls don't fire _refresh_layer_patches mid-rebuild.
+            if fname in saved:
+                s = saved[fname]
+                idx = surf_type_combo.findText(s["surf_type"])
+                if idx >= 0:
+                    surf_type_combo.setCurrentIndex(idx)
+                cell_zone_cb.setChecked(s["cell_zone"])
+                surf_min_sp.setValue(s["surf_min"])
+                surf_max_sp.setValue(s["surf_max"])
+                idx2 = vol_dir_combo.findText(s["vol_dir"])
+                if idx2 >= 0:
+                    vol_dir_combo.setCurrentIndex(idx2)
+                # vol_level enable state is driven by vol_dir — set explicitly
+                # since setCurrentIndex may not emit currentTextChanged when the
+                # restored value happens to match the combo's existing index.
+                vol_level_sp.setEnabled(s["vol_dir"].lower() != "none")
+                vol_level_sp.setValue(s["vol_level"])
+                _update_cz(s["surf_type"])
+
             surf_type_combo.currentTextChanged.connect(_update_cz)
             surf_type_combo.currentTextChanged.connect(self._refresh_layer_patches)
             vol_dir_combo.currentTextChanged.connect(_update_vol_level)
 
         self._refresh_layer_patches()
+
+        # Confirmation banner — only shown when values were actually preserved
+        # (i.e. _preserve=True and there were saved rows from the previous build).
+        if _preserve and saved:
+            banner = QLabel(
+                "✓ File list refreshed — your previous settings have been restored.")
+            banner.setStyleSheet(
+                "color: #166534; background: #DCFCE7;"
+                " border: 1px solid #86EFAC; border-radius: 3px;"
+                " padding: 4px 10px; font-size: 12px;")
+            self._file_table_layout.addWidget(banner)
+            QTimer.singleShot(4000, lambda: banner.setVisible(False))
 
     # ── Standard shapes ────────────────────────────────────────────────────────────
 
@@ -609,6 +721,12 @@ class SnappyHexWidget(QWidget):
         self._geom_unit_combo.addItems(_GEOM_UNITS)
         self._geom_unit_combo.setStyleSheet(STYLE_COMBO)
         self._geom_unit_combo.setFixedWidth(90)
+        self._geom_unit_combo.setToolTip(
+            "Unit of your STL geometry coordinates.\n"
+            "OpenFOAM works internally in metres.\n"
+            "Select the unit your CAD tool used when exporting the STL.\n"
+            "Check the bounding box on the Background Mesh tab to confirm.\n"
+            "Most common: mm for mechanical CAD, m for large domains.")
         unit_row.addWidget(unit_lbl)
         unit_row.addWidget(self._geom_unit_combo)
         unit_row.addStretch()
@@ -622,6 +740,12 @@ class SnappyHexWidget(QWidget):
         self._ncbl_sp.setRange(1, 5)
         self._ncbl_sp.setValue(2)
         self._ncbl_sp.setFixedWidth(70)
+        self._ncbl_sp.setToolTip(
+            "Cells between each refinement level transition.\n"
+            "Controls smoothness of coarse-to-fine cell transitions.\n"
+            "Higher = smoother mesh but more cells overall.\n"
+            "Recommended: 2 (default). Use 3 for high-quality layer prep.\n"
+            "Rarely need to exceed 3.")
         ncbl_row.addWidget(ncbl_lbl)
         ncbl_row.addWidget(self._ncbl_sp)
         ncbl_row.addStretch()
@@ -637,21 +761,39 @@ class SnappyHexWidget(QWidget):
         self._loc_z_sp.setValue(0.000)
         for sp, ph in [(self._loc_x_sp, "x"), (self._loc_y_sp, "y"), (self._loc_z_sp, "z")]:
             sp.setPrefix(f"{ph}: ")
+        for sp in [self._loc_x_sp, self._loc_y_sp, self._loc_z_sp]:
+            sp.setToolTip(
+                "A point inside your fluid domain.\n"
+                "snappyHexMesh KEEPS cells reachable from this point\n"
+                "and DISCARDS everything else.\n\n"
+                "Rules:\n"
+                "• Inside your outer domain box (geom.stl bounds)\n"
+                "• Outside all solid bodies (cylinders, fins, etc.)\n"
+                "• Not on any face, edge, or surface\n\n"
+                "Wrong point = empty or broken mesh.")
         loc_row.addWidget(self._loc_x_sp)
         loc_row.addWidget(self._loc_y_sp)
         loc_row.addWidget(self._loc_z_sp)
         suggest_btn = QPushButton("Suggest point")
         suggest_btn.setStyleSheet(STYLE_BTN_SMALL_GHOST)
+        suggest_btn.setToolTip(
+            "Auto-fills locationInMesh from your STL bounding boxes.\n"
+            "Reads the largest boundary STL as the fluid domain boundary\n"
+            "and places the point at 60% toward its corner.\n\n"
+            "Always verify the result satisfies all three rules:\n"
+            "inside the outer box, outside all solids, not on a surface.")
         suggest_btn.clicked.connect(self._suggest_location_in_mesh)
         loc_row.addWidget(suggest_btn)
         loc_row.addStretch()
         body.addLayout(loc_row)
 
         self._location_warn = QLabel(
-            "⚠ REQUIRED: Point must be inside the fluid domain — not on a face or edge.\n"
-            "External flow (fluid outside geometry): use a corner near the background mesh boundary.\n"
-            "Internal flow (fluid inside geometry): use a point inside your geometry.\n"
-            "Click ‘Suggest point’ to auto-fill a corner of the background mesh.")
+            "⚠ REQUIRED: Point must be inside the fluid domain — not on a face, edge, or inside a solid.\n"
+            "Internal flow (fluid inside a box with objects): point must be inside the box "
+            "AND outside all solid objects.\n"
+            "External flow (fluid outside geometry): use a far-field point away from the body.\n"
+            "Click ‘Suggest point’ to auto-fill from blockMeshDict — then sanity-check it against "
+            "your STL bounds.")
         self._location_warn.setObjectName("location_warn")
         self._location_warn.setStyleSheet("""
             QLabel#location_warn {
@@ -677,6 +819,14 @@ class SnappyHexWidget(QWidget):
             "Use implicit feature snapping  (recommended — no edge files needed)")
         self._snap_implicit_cb.setStyleSheet(STYLE_CHECKBOX)
         self._snap_implicit_cb.setChecked(True)
+        self._snap_implicit_cb.setToolTip(
+            "Implicit (checked, recommended):\n"
+            "snappyHexMesh detects surface features automatically.\n"
+            "No extra files needed. Works well for most STL geometries.\n\n"
+            "Explicit (unchecked):\n"
+            "Uses .eMesh edge files from surfaceFeatureExtract.\n"
+            "Only uncheck if you have .eMesh files in constant/\n"
+            "and need precise control over snapped edges.")
         body.addWidget(self._snap_implicit_cb)
 
         note = QLabel("Explicit snapping requires .eMesh edge files in constant/")
@@ -693,6 +843,12 @@ class SnappyHexWidget(QWidget):
 
         self._add_layers_cb = QCheckBox("Add boundary layers?")
         self._add_layers_cb.setStyleSheet(STYLE_CHECKBOX)
+        self._add_layers_cb.setToolTip(
+            "Adds prismatic inflation layers along wall patches.\n"
+            "Important for accurate heat transfer and viscous flow.\n\n"
+            "Get the base mesh correct first, then enable layers.\n"
+            "Requires fvSchemes and fvSolution (auto-written when enabled).\n"
+            "Significantly increases mesh generation time.")
         self._add_layers_cb.toggled.connect(self._toggle_layer_details)
         body.addWidget(self._add_layers_cb)
 
@@ -735,6 +891,12 @@ class SnappyHexWidget(QWidget):
                 if len(zones) > 1:
                     patches.extend(zones)
                     continue
+                # Single named solid (e.g. `solid external-walls`) — OpenFOAM names
+                # the patch after the solid, not the filename, so mirror the
+                # backend's _mesh_name_for_stl rule here.
+                if len(zones) == 1 and zones[0] != "Unnamed":
+                    patches.append(zones[0])
+                    continue
 
             patches.append(stem)
 
@@ -759,6 +921,11 @@ class SnappyHexWidget(QWidget):
             sp.setRange(1, 10)
             sp.setValue(3)
             sp.setFixedWidth(70)
+            sp.setToolTip(
+                f"Prismatic layers on patch '{patch}'.\n"
+                "Each layer grows thinner toward the wall.\n"
+                "Typical: 3–5 layers for heat simulation cases.\n"
+                "More layers = better near-wall resolution, more cells.")
             row.addWidget(lbl)
             row.addWidget(sp)
             row.addStretch()
@@ -812,12 +979,26 @@ class SnappyHexWidget(QWidget):
 
         self._open_paraview_cb = QCheckBox("Open in ParaView automatically after successful mesh generation")
         self._open_paraview_cb.setStyleSheet(STYLE_CHECKBOX)
+        self._open_paraview_cb.setToolTip(
+            "Launches ParaView automatically when meshing succeeds.\n"
+            "Opens the .foam sentinel file for the case.\n"
+            "ParaView must be installed on the Windows side.\n"
+            "In ParaView: click Apply, then use Filters > Extract Block\n"
+            "to inspect individual patches (external-walls, inner-cylinder).")
         body.addWidget(self._open_paraview_cb)
 
         btn_row = QHBoxLayout()
         self._run_btn = QPushButton("Generate Dict && Run snappyHexMesh")
         self._run_btn.setStyleSheet(STYLE_BTN_PRIMARY)
         self._run_btn.setEnabled(_BACKEND_OK)
+        self._run_btn.setToolTip(
+            "Writes system/snappyHexMeshDict then runs snappyHexMesh.\n\n"
+            "Pre-run checklist:\n"
+            "✓ Background Mesh tab completed (blockMesh ran successfully)\n"
+            "✓ STLs have Surface Type = Boundary (not None)\n"
+            "✓ Inner solid bodies have Vol Dir = Inside\n"
+            "✓ locationInMesh is set to a valid fluid domain point\n"
+            "✓ locationInMesh is NOT (0, 0, 0)")
         self._run_btn.clicked.connect(self._generate_and_run)
         btn_row.addStretch()
         btn_row.addWidget(self._run_btn)
@@ -902,7 +1083,77 @@ class SnappyHexWidget(QWidget):
     # ── LocationInMesh auto-suggest ────────────────────────────────────────────────
 
     def _suggest_location_in_mesh(self):
-        """Parse system/blockMeshDict vertices to compute and set the bounding-box centroid."""
+        """Read the largest boundary STL's bounding box; fall back to blockMeshDict on any error.
+
+        Why STL-first: the background blockMesh is enlarged by ~10 % around the
+        outer-domain STL, so a point at 60 % from the blockMesh centroid can land
+        outside the actual STL box and produce an empty mesh.  Reading the STL
+        directly anchors the suggested point inside the real domain.
+        """
+        green_style = """
+            QLabel#location_warn {
+                color: #166534; background: #DCFCE7;
+                border: 1px solid #86EFAC; border-radius: 3px;
+                padding: 6px 10px; font-size: 12px;
+            }
+        """
+
+        # ── Try the largest boundary STL first ─────────────────────────────
+        stl_bounds = None
+        stl_name   = None
+        try:
+            vertex_re = re.compile(
+                r'vertex\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)'
+                r'\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)'
+                r'\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)')
+            best_vol = 0.0
+            for fname, full_path, widgets in self._file_rows:
+                if widgets["surf_type_combo"].currentText() == "None":
+                    continue
+                if not fname.lower().endswith(".stl") or not os.path.isfile(full_path):
+                    continue
+                with open(full_path, "r", errors="ignore") as f:
+                    text = f.read()
+                verts = vertex_re.findall(text)
+                if not verts:
+                    continue
+                xs = [float(v[0]) for v in verts]
+                ys = [float(v[1]) for v in verts]
+                zs = [float(v[2]) for v in verts]
+                mn_x, mx_x = min(xs), max(xs)
+                mn_y, mx_y = min(ys), max(ys)
+                mn_z, mx_z = min(zs), max(zs)
+                vol = (mx_x - mn_x) * (mx_y - mn_y) * (mx_z - mn_z)
+                if vol > best_vol:
+                    best_vol   = vol
+                    stl_bounds = (mn_x, mx_x, mn_y, mx_y, mn_z, mx_z)
+                    stl_name   = fname
+        except Exception:
+            stl_bounds = None
+
+        if stl_bounds is not None:
+            min_x, max_x, min_y, max_y, min_z, max_z = stl_bounds
+            cx = (min_x + max_x) / 2
+            cy = (min_y + max_y) / 2
+            cz = (min_z + max_z) / 2
+            px = round(cx + (max_x - cx) * 0.6, 6)
+            py = round(cy + (max_y - cy) * 0.6, 6)
+            pz = round(cz + (max_z - cz) * 0.6, 6)
+            self._loc_x_sp.setValue(px)
+            self._loc_y_sp.setValue(py)
+            self._loc_z_sp.setValue(pz)
+            if self._location_warn:
+                self._location_warn.setText(
+                    f"✓ Suggested point: ({px}, {py}, {pz})\n"
+                    f"Domain reference: {stl_name} bounds "
+                    f"({min_x:.4g} {min_y:.4g} {min_z:.4g}) → "
+                    f"({max_x:.4g} {max_y:.4g} {max_z:.4g})\n"
+                    "⚠ VERIFY this point is outside all inner solid bodies (cylinders, fins).\n"
+                    "  If solids are centred at the origin, try moving X further toward the wall.")
+                self._location_warn.setStyleSheet(green_style)
+            return
+
+        # ── Fallback: parse blockMeshDict vertices ─────────────────────────
         bmd_path = os.path.join(self._cwd, "system", "blockMeshDict")
         if not os.path.exists(bmd_path):
             if self._location_warn:
@@ -937,28 +1188,19 @@ class SnappyHexWidget(QWidget):
             cx = (min_x + max_x) / 2
             cy = (min_y + max_y) / 2
             cz = (min_z + max_z) / 2
-            # Suggest a point 90 % of the way from the centroid to the max corner.
-            # For external flow this lands in the outer fluid region (outside geometry).
-            # For internal flow manually enter a point inside your geometry instead.
-            px = round(cx + (max_x - cx) * 0.9, 6)
-            py = round(cy + (max_y - cy) * 0.9, 6)
-            pz = round(cz + (max_z - cz) * 0.9, 6)
+            px = round(cx + (max_x - cx) * 0.6, 6)
+            py = round(cy + (max_y - cy) * 0.6, 6)
+            pz = round(cz + (max_z - cz) * 0.6, 6)
 
             self._loc_x_sp.setValue(px)
             self._loc_y_sp.setValue(py)
             self._loc_z_sp.setValue(pz)
             if self._location_warn:
                 self._location_warn.setText(
-                    f"✓ Corner point set: ({px}, {py}, {pz})\n"
-                    "External flow (fluid outside geometry): this outer-region point should work.\n"
-                    "Internal flow (fluid inside geometry): manually enter a point inside your geometry.")
-                self._location_warn.setStyleSheet("""
-                    QLabel#location_warn {
-                        color: #166534; background: #DCFCE7;
-                        border: 1px solid #86EFAC; border-radius: 3px;
-                        padding: 6px 10px; font-size: 12px;
-                    }
-                """)
+                    f"✓ Point set: ({px}, {py}, {pz})  (from blockMeshDict — STL bounds unavailable)\n"
+                    "Internal flow: point must be inside the box AND outside all solid objects.\n"
+                    "External flow: point must be in the far-field region away from the body.")
+                self._location_warn.setStyleSheet(green_style)
 
         except Exception as e:
             if self._location_warn:

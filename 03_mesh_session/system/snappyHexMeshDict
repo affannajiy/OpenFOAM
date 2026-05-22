@@ -25,7 +25,7 @@ geometry
     geom.stl
     {
         type            triSurfaceMesh;
-        name            geom;
+        name            external-walls;
     }
     inner-cylinder.stl
     {
@@ -43,12 +43,17 @@ castellatedMeshControls
     features        ( );
     refinementRegions
     {
+        inner-cylinder
+        {
+            mode            inside;
+            levels          ( ( 1 1 ) );
+        }
     }
     refinementSurfaces
     {
-        geom
+        external-walls
         {
-            level           ( 2 3 );
+            level           ( 1 2 );
             patchInfo
             {
                 type            wall;
@@ -57,14 +62,14 @@ castellatedMeshControls
         }
         inner-cylinder
         {
-            level           ( 2 3 );
+            level           ( 1 2 );
             faceZone        inner-cylinder;
             faceType        internal;
         }
     }
     resolveFeatureAngle 30;
     nCellsBetweenLevels 2;
-    locationInMesh  ( 0.495 0.495 0.495 );
+    locationInMesh  ( 0.3 0.3 0.3 );
     allowFreeStandingZoneFaces true;
 }
 

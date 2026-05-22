@@ -18,12 +18,12 @@ FoamFile
 
 1
 (
-    geom
+    external-walls
     {
         type            wall;
         inGroups        2(walls wall);
-        nFaces          49632;
-        startFace       473640;
+        nFaces          15072;
+        startFace       135456;
     }
 )
 
