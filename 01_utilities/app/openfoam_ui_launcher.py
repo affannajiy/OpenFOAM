@@ -19,8 +19,8 @@ _FOAM_BASHRC_2312 = '/usr/lib/openfoam/openfoam2312/etc/bashrc'
 _REQUIRED_PACKAGES = ['PyQt5', 'numpy']
 
 # Path to the OpenFOAM bashrc that pre-flight confirmed exists.
-# Set in _do_checks() once detection succeeds; read by main() to build the
-# launch command.  None until detection runs.
+# Set by _detect_openfoam_bashrc() once detection succeeds; read by main() to
+# build the launch command.  None until detection runs.
 _DETECTED_BASHRC = None
 
 # Path of the install sentinel inside WSL — written by the setup script as its
@@ -169,8 +169,9 @@ class _Splash:
         self.root.update()
 
     def pump(self):
-        """Pump pending tk events without changing state — keeps splash responsive
-        during long polling loops where the main thread is otherwise blocked."""
+        """Pump pending tk events without changing state — keeps splash
+        responsive during long polling loops where the main thread would
+        otherwise be blocked in sleep()/subprocess.run()."""
         try:
             self.root.update()
         except Exception:
@@ -188,204 +189,170 @@ class _Splash:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _detect_openfoam_bashrc():
-    """Return path to an OpenFOAM bashrc — prefer 2506, fall back to 2312.
-
-    Returns None if neither is installed (or WSL is unreachable).
-    """
+    """Detect which OpenFOAM bashrc is available — prefer 2506, fall back to
+    2312.  Updates the module-level _DETECTED_BASHRC and returns it (or None
+    if neither version is installed)."""
+    global _DETECTED_BASHRC
     rc, out, _ = _wsl(
-        f'if [ -f {_FOAM_BASHRC_2506} ]; then echo 2506; '
-        f'elif [ -f {_FOAM_BASHRC_2312} ]; then echo 2312; '
-        f'else echo none; fi',
-        timeout=15,
+        f'test -f {_FOAM_BASHRC_2506} && echo 2506 || '
+        f'(test -f {_FOAM_BASHRC_2312} && echo 2312 || echo none)',
+        timeout=10,
     )
-    if rc != 0:
-        return None
-    v = out.strip()
-    if v == '2506':
-        return _FOAM_BASHRC_2506
-    if v == '2312':
-        return _FOAM_BASHRC_2312
-    return None
+    if rc == 0 and out.strip() == '2506':
+        _DETECTED_BASHRC = _FOAM_BASHRC_2506
+    elif rc == 0 and out.strip() == '2312':
+        _DETECTED_BASHRC = _FOAM_BASHRC_2312
+    else:
+        _DETECTED_BASHRC = None
+    return _DETECTED_BASHRC
 
 
 def _build_setup_script(install_openfoam, install_packages):
     """Build the bash setup script body as a single string.
 
-    The script:
-      • Installs OpenFOAM 2506 via the official ESI apt repo (uses sudo, so it
-        will prompt for the user's password in the terminal).
-      • Installs PyQt5 and numpy via pip3 (no sudo needed thanks to
-        --break-system-packages).
-      • Always touches a sentinel file before the closing read prompt so the
-        launcher can detect completion even if the user closes the window
-        instead of pressing Enter.
+    Always installs the Qt/XCB system libraries (every fresh Ubuntu WSL
+    install needs them for PyQt5 to display).  Optionally installs OpenFOAM
+    2506 and Python packages.  Always touches the sentinel and prompts for
+    Enter at the end.
 
-    `set -e` is intentionally NOT used at the top level — if a step fails we
-    still want to reach the sentinel + read prompt so the user sees the error
-    and the launcher detects the script has finished.
+    `set -e` is intentionally NOT used — every section must run to
+    completion so the sentinel is always touched and the user sees every
+    error in the terminal.
     """
     lines = [
         '#!/usr/bin/env bash',
-        'clear || true',
-        'echo "==============================================="',
-        'echo "  OpenFOAM Mesh Utilities — First-time Setup"',
-        'echo "==============================================="',
-        'echo',
-        'overall=0',
+        'echo "============================================"',
+        'echo " OpenFOAM GUI — First-Time Setup"',
+        'echo "============================================"',
+        'echo ""',
+        '',
+        'echo "=== Installing Qt/XCB system libraries ==="',
+        'sudo apt-get install -y \\',
+        '  libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \\',
+        '  libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \\',
+        '  libxcb-xfixes0 libxcb-cursor0 libxkbcommon-x11-0',
+        'echo ""',
+        '',
     ]
     if install_openfoam:
         lines.extend([
-            'echo "Step: Installing OpenFOAM 2506"',
-            'echo "Sudo will prompt for your password — that is expected."',
-            'echo',
-            'curl -fsSL https://dl.openfoam.com/add-apt-repository.sh | sudo bash',
-            'rc_repo=$?',
+            'echo "=== Installing OpenFOAM 2506 ==="',
+            'curl -s https://dl.openfoam.com/add-apt-repository.sh | sudo bash',
             'sudo apt-get update',
-            'rc_update=$?',
             'sudo apt-get install -y openfoam2506',
-            'rc_install=$?',
-            'if [ $rc_repo -ne 0 ] || [ $rc_update -ne 0 ] || [ $rc_install -ne 0 ]; then',
-            '  echo',
-            '  echo "[ERROR] OpenFOAM installation failed."',
-            '  overall=1',
-            'fi',
-            'echo',
+            'echo ""',
+            '',
         ])
     if install_packages:
+        pkgs = ' '.join(install_packages)
         lines.extend([
-            'echo "Step: Installing Python packages (PyQt5, numpy)"',
-            'pip3 install PyQt5 numpy --break-system-packages',
-            'if [ $? -ne 0 ]; then',
-            '  echo "[ERROR] Python package installation failed."',
-            '  overall=1',
-            'fi',
-            'echo',
+            'echo "=== Installing Python packages ==="',
+            f'pip3 install {pkgs} --break-system-packages',
+            'echo ""',
+            '',
         ])
     lines.extend([
-        'echo "==============================================="',
-        'if [ "$overall" = "0" ]; then',
-        '  echo "  Setup complete!"',
-        'else',
-        '  echo "  Setup FAILED — review messages above."',
-        'fi',
-        'echo "==============================================="',
-        'touch "$HOME/.openfoam_ui_setup_done"',
-        'echo',
-        'read -p "Press Enter to close this window... " _',
+        'echo "============================================"',
+        'echo " Setup finished."',
+        'echo "============================================"',
+        'touch $HOME/.openfoam_ui_setup_done',
+        'read -p "Press Enter to close this window..."',
     ])
     return '\n'.join(lines) + '\n'
 
 
 def _write_setup_script(install_openfoam, install_packages):
-    """Write the setup script into the WSL home directory.
+    """Write the setup script into the WSL home directory via base64.
 
-    Uses base64 over the wsl pipe to avoid any Windows-side quoting or newline
-    pitfalls — Python encodes the script body, bash decodes it inside WSL and
-    writes the file.  Counts as "writing via WSL echo/cat", not Python I/O,
-    because no Python open()/write() touches the WSL filesystem.
-
-    Returns (ok, error_message).
+    Returns True if the WSL command succeeded, False otherwise.
     """
     body = _build_setup_script(install_openfoam, install_packages)
-    body_b64 = base64.b64encode(body.encode('utf-8')).decode('ascii')
-    cmd = (
-        f'echo "{body_b64}" | base64 -d > "{_SETUP_SCRIPT_WSL}" && '
-        f'chmod +x "{_SETUP_SCRIPT_WSL}"'
+    b64 = base64.b64encode(body.encode()).decode()
+    rc, _, _ = _wsl(
+        f'echo "{b64}" | base64 -d > {_SETUP_SCRIPT_WSL} && '
+        f'chmod +x {_SETUP_SCRIPT_WSL}',
+        timeout=15,
     )
-    rc, _, err = _wsl(cmd, timeout=20)
-    if rc != 0:
-        return False, err or f'wsl write returned exit code {rc}'
-    return True, None
+    return rc == 0
 
 
 def _launch_install_terminal(splash):
     """Launch the setup script in a visible terminal and wait for it to finish.
 
     Strategy:
-      1. Clear any stale sentinel file.
+      1. Clear stale sentinel.
       2. Try Windows Terminal (wt.exe) first, fall back to cmd.exe.
-      3. Poll the sentinel file inside WSL — appears when the script reaches
-         its final read prompt.  Also polls for the bash script PID via pgrep
-         to detect early termination (user closing the terminal window before
-         install completes).
+         Both are launched with CREATE_NO_WINDOW so the launcher itself
+         doesn't spawn a console; the terminal app shows its own window.
+      3. Poll the sentinel file (written as the script's last action) every
+         2 seconds, up to 30 minutes.  After a 20 s startup grace period,
+         also watch for the bash script disappearing without writing the
+         sentinel (user closed the terminal early); require 3 consecutive
+         "gone" readings to avoid false positives during apt's brief lulls.
 
-    The script process is the authoritative signal because:
-      • wt.exe forks the terminal off and exits immediately — proc.wait() would
-        return long before the user finishes installing.
-      • cmd.exe /c start without /wait also exits immediately.
-
-    Returns True if the sentinel was written (script ran to completion),
-    False on launch failure / timeout / early termination.
+    proc.wait() is deliberately NOT called: wt.exe and `cmd /c start` both
+    fork off the terminal and exit immediately, so the only authoritative
+    completion signal is the sentinel.
     """
     # Clear any sentinel from a previous attempt so we don't mistake it for
-    # a successful run of this attempt.
-    _wsl(f'rm -f "{_SETUP_SENTINEL_WSL}"', timeout=5)
+    # success on this attempt.
+    _wsl(f'rm -f {_SETUP_SENTINEL_WSL}', timeout=5)
 
-    inner = f'bash "{_SETUP_SCRIPT_WSL}"'
-    launchers = [
-        # Windows Terminal — opens its own window in the Ubuntu profile.
-        ['wt.exe', '-p', 'Ubuntu', '--',
-         _WSL_EXE, 'bash', '-c', inner],
-        # Fallback — works on any Windows install.
-        ['cmd.exe', '/c', 'start', '',
-         _WSL_EXE, 'bash', '-c', inner],
-    ]
     proc = None
-    for cmd in launchers:
+    try:
+        proc = subprocess.Popen(
+            ['wt.exe', '-p', 'Ubuntu', '--',
+             'wsl', 'bash', _SETUP_SCRIPT_WSL],
+            creationflags=_CREATE_NO_WINDOW,
+        )
+    except (FileNotFoundError, OSError):
         try:
-            proc = subprocess.Popen(cmd)
-            break
+            proc = subprocess.Popen(
+                ['cmd.exe', '/c', 'start', '',
+                 'wsl', 'bash', '-c', f'bash {_SETUP_SCRIPT_WSL}'],
+                creationflags=_CREATE_NO_WINDOW,
+            )
         except (FileNotFoundError, OSError):
-            continue
-        except Exception:
-            continue
+            return False
+
     if proc is None:
         return False
-
-    # proc.wait() per the spec — for wt.exe this returns immediately, for
-    # cmd.exe /c start it also returns immediately.  The real completion
-    # signal is the sentinel file polled below.
-    try:
-        proc.wait()
-    except Exception:
-        pass
 
     splash.set_status(
         'Setup running — follow the prompts in the terminal window…'
     )
 
-    deadline = time.time() + 30 * 60  # 30 min absolute cap
-    start_time = time.time()
-    startup_grace = 20  # don't flag "process gone" during this window
-    script_dead_since = None
+    max_iterations = 1800        # 30 min ÷ 2 s
+    grace_iterations = 10        # 20 s before we start watching pgrep
+    gone_streak = 0
 
-    while time.time() < deadline:
+    for i in range(max_iterations):
         splash.pump()
+        time.sleep(2)
 
         # Primary completion signal — sentinel file.
         rc, out, _ = _wsl(
-            f'test -f "{_SETUP_SENTINEL_WSL}" && echo done',
+            f'test -f {_SETUP_SENTINEL_WSL} && echo yes',
             timeout=5,
         )
-        if out.strip() == 'done':
+        if out.strip() == 'yes':
             return True
 
-        # Secondary signal — if the bash process disappears without writing
-        # the sentinel, the user closed the terminal early.  Only enforced
-        # after a startup grace period so we don't false-positive on the
-        # initial slow WSL boot.
-        if time.time() - start_time > startup_grace:
-            rc, out, _ = _wsl('pgrep -f openfoam_ui_setup.sh', timeout=5)
-            script_alive = (rc == 0 and out.strip())
-            if not script_alive:
-                if script_dead_since is None:
-                    script_dead_since = time.time()
-                elif time.time() - script_dead_since > 10:
+        # Secondary signal — script process disappeared without writing the
+        # sentinel.  Only enforced after the startup grace window so we don't
+        # false-positive while WSL is still booting.
+        if i >= grace_iterations:
+            rc, out, _ = _wsl(
+                'pgrep -f openfoam_ui_setup.sh > /dev/null && '
+                'echo running || echo gone',
+                timeout=5,
+            )
+            if out.strip() == 'gone':
+                gone_streak += 1
+                if gone_streak >= 3:
                     return False
             else:
-                script_dead_since = None
-
-        time.sleep(3)
+                gone_streak = 0
 
     return False
 
@@ -398,12 +365,12 @@ def _do_checks(splash):
     """Run a single pass of pre-flight checks.
 
     Returns one of:
-      True                     — all good, ready to launch.
-      (False, title, message)  — hard failure, caller shows the dialog & exits.
-      ('install', None, None)  — interactive install was attempted, caller
-                                 should re-run checks from the top.
+      (True, None, None)        — all good, ready to launch.
+      (False, title, message)   — hard failure, caller shows the dialog & exits.
+      'install'                 — interactive install was attempted; caller
+                                  should re-run checks from the top.
     """
-    n = 6
+    n = 7
     step = [0]
 
     def tick(label):
@@ -411,7 +378,7 @@ def _do_checks(splash):
         splash.set_status(label)
         splash.set_progress(step[0] / n)
 
-    # ── 1. WSL reachable ─────────────────────────────────────────────────────
+    # ── Step 1: WSL reachable ────────────────────────────────────────────────
     tick('Checking WSL2…')
     rc, out, err = _wsl('echo ok', timeout=10)
     if rc == -1:
@@ -441,7 +408,7 @@ def _do_checks(splash):
             'Contact your IT administrator if the problem persists.'
         )
 
-    # ── 2. WSLg display ───────────────────────────────────────────────────────
+    # ── Step 2: WSLg display ─────────────────────────────────────────────────
     tick('Checking WSLg display…')
     rc, out, _ = _wsl('printf "%s%s" "$DISPLAY" "$WAYLAND_DISPLAY"', timeout=10)
     if rc != 0 or not out.strip():
@@ -457,18 +424,15 @@ def _do_checks(splash):
             'Contact your IT administrator if the problem persists.'
         )
 
-    # ── 3. OpenFOAM bashrc — independent check, surfaces missing case clearly ─
+    # ── Step 3: OpenFOAM bashrc — detect, don't fail here ────────────────────
     tick('Checking OpenFOAM installation…')
     bashrc = _detect_openfoam_bashrc()
-    needs_openfoam = bashrc is None
+    install_openfoam = bashrc is None
 
-    # ── 4. python3 ────────────────────────────────────────────────────────────
+    # ── Step 4: python3 present ──────────────────────────────────────────────
     tick('Checking Python 3…')
     rc, _, _ = _wsl('python3 --version', timeout=10)
     if rc != 0:
-        # python3 install requires sudo apt-get and is unusual on modern Ubuntu
-        # (which ships python3 by default).  Treat as a hard error rather than
-        # bundling it into the interactive installer.
         return False, 'Python 3 Not Found in WSL', (
             'python3 is not available inside WSL.\n\n'
             'Fix: open a WSL terminal and run:\n'
@@ -477,7 +441,7 @@ def _do_checks(splash):
             'Then run this launcher again.'
         )
 
-    # ── 5. Python packages ────────────────────────────────────────────────────
+    # ── Step 5: Python packages — detect, don't install yet ──────────────────
     tick('Checking Python packages…')
     pkgs = ' '.join(_REQUIRED_PACKAGES)
     rc, out, _ = _wsl(
@@ -487,27 +451,26 @@ def _do_checks(splash):
         timeout=20,
     )
     missing = out.strip().split() if rc == 0 else list(_REQUIRED_PACKAGES)
-    needs_packages = bool(missing)
 
-    # ── Interactive install if OpenFOAM or packages are missing ──────────────
-    if needs_openfoam or needs_packages:
+    # ── Step 6: Interactive install gate ─────────────────────────────────────
+    tick('Reviewing installation requirements…')
+    if install_openfoam or missing:
         bullets = []
-        if needs_openfoam:
-            bullets.append('  • OpenFOAM 2506 (requires your sudo password)')
-        if needs_packages:
-            bullets.append(f'  • Python packages: {", ".join(missing)}')
+        if install_openfoam:
+            bullets.append('  • OpenFOAM 2506 (required for mesh generation)')
+        bullets.append('  • Qt/XCB system libraries (required by the GUI)')
+        for p in missing:
+            bullets.append(f'  • {p}')
         items = '\n'.join(bullets)
 
         ok = messagebox.askyesno(
-            'Setup Required',
+            'First-Time Setup Required',
             (
-                f'The following components are missing and must be installed '
-                f'before the GUI can start:\n\n'
+                'The following components need to be installed in WSL:\n\n'
                 f'{items}\n\n'
-                'Click Yes to open a setup terminal window. Sudo will prompt '
-                'for your password inside that window — that is normal and '
-                'expected.\n\n'
-                'Click No to exit and install manually.'
+                'A terminal window will open so you can enter your\n'
+                'sudo password when prompted.\n\n'
+                'Install now?'
             ),
             icon='info',
         )
@@ -515,36 +478,26 @@ def _do_checks(splash):
             return False, 'Setup Required', (
                 'These components must be installed before the GUI can start:\n\n'
                 f'{items}\n\n'
-                'See the project README for manual installation instructions, '
-                'then run this launcher again.'
+                'Run the launcher again when you are ready to install.'
             )
 
-        splash.set_status('Preparing setup script…')
-        ok_write, err = _write_setup_script(needs_openfoam, needs_packages)
-        if not ok_write:
-            return False, 'Could Not Write Setup Script', (
+        if not _write_setup_script(install_openfoam, missing):
+            return False, 'Setup Script Failed', (
                 'Failed to write the setup script to ~/openfoam_ui_setup.sh '
-                'inside WSL:\n\n'
-                f'{err or "(no error message)"}\n\n'
+                'inside WSL.\n\n'
                 'Try installing the missing components manually inside WSL.'
             )
 
-        ok_term = _launch_install_terminal(splash)
-        if not ok_term:
-            return False, 'Setup Did Not Complete', (
-                'The setup terminal could not be launched, or the terminal was '
-                'closed before installation completed.\n\n'
-                'Open a WSL terminal manually and run:\n'
-                '  bash ~/openfoam_ui_setup.sh\n\n'
-                'Then run this launcher again.'
-            )
-        return ('install', None, None)
+        splash.set_status('Waiting for setup to complete…')
+        if _launch_install_terminal(splash):
+            return 'install'
+        return False, 'Setup Cancelled or Failed', (
+            'The setup terminal was closed before setup completed.\n\n'
+            'Please run the launcher again and complete the setup\n'
+            'when prompted.'
+        )
 
-    # ── All present — record the bashrc that the launch command will source ─
-    global _DETECTED_BASHRC
-    _DETECTED_BASHRC = bashrc
-
-    # ── 6. openfoam_ui.py present — local file check ─────────────────────────
+    # ── Step 7: openfoam_ui.py present ───────────────────────────────────────
     tick('Checking application files…')
     ui_py = os.path.join(_get_exe_dir(), 'openfoam_ui.py')
     if not os.path.isfile(ui_py):
@@ -556,29 +509,25 @@ def _do_checks(splash):
             'the 01_utilities folder.'
         )
 
-    return True
+    return True, None, None
 
 
 def _run_checks(splash):
-    """Run pre-flight checks, retrying once after an interactive install."""
-    for attempt in range(2):
-        if attempt > 0:
-            splash.set_status('Re-running pre-flight checks…')
-            splash.set_progress(0.0)
+    """Run pre-flight checks; allow one interactive-install retry."""
+    result = _do_checks(splash)
+    if result == 'install':
+        splash.set_status('Re-running pre-flight checks…')
+        splash.set_progress(0.0)
         result = _do_checks(splash)
-        if result is True:
-            return True, None, None
-        if isinstance(result, tuple) and result[0] == 'install':
-            continue
-        return result
-    # Second pass still wanted an install — installer didn't fix everything.
-    return False, 'Setup Not Complete', (
-        'The first installation attempt finished but required components are '
-        'still missing.\n\n'
-        'Open a WSL terminal manually and run:\n'
-        '  bash ~/openfoam_ui_setup.sh\n\n'
-        'Read any error messages, address them, then run this launcher again.'
-    )
+    if result == 'install':
+        return False, 'Setup Not Complete', (
+            'Installation did not complete successfully.\n\n'
+            'Please run the launcher again after setup is finished.\n\n'
+            'If problems persist, open a WSL terminal and run:\n'
+            '  sudo apt-get install -y openfoam2506\n'
+            '  pip3 install PyQt5 numpy --break-system-packages'
+        )
+    return result
 
 
 def main():
@@ -626,3 +575,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

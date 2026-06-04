@@ -192,16 +192,17 @@ of2506
 
 ## What the Launcher Checks
 
-The startup window runs six checks in order and stops at the first failure with a clear error message and fix instructions.
+The startup window runs seven pre-flight steps in order and stops at the first failure with a clear error message and fix instructions.
 
-| # | Check | If missing |
-|---|-------|------------|
+| # | Step | If missing |
+|---|------|------------|
 | 1 | **WSL2 reachable** | Install WSL2: `wsl --install` (PowerShell as Administrator), restart Windows |
 | 2 | **WSLg display** | `wsl --update` then `wsl --shutdown` |
-| 3 | **OpenFOAM 2506** | Install OpenFOAM 2506 in WSL — see Steps 1–4 above |
+| 3 | **OpenFOAM bashrc** (prefers 2506, accepts 2312) | Auto-install offered in step 6; or install OpenFOAM 2506 in WSL — see Steps 1–4 above |
 | 4 | **Python 3** | `sudo apt-get install -y python3 python3-pip` inside WSL |
-| 5 | **Python packages** | Launcher offers auto-install; or see Step 7 |
-| 6 | **openfoam_ui.py present** | Keep all files in the same `01_utilities\` folder — do not move the `.exe` |
+| 5 | **Python packages** (`PyQt5`, `numpy`) | Auto-install offered in step 6 |
+| 6 | **Interactive install gate** | If OpenFOAM or any Python package is missing, the launcher prompts to open a terminal window and install them — including the Qt/XCB system libraries needed by PyQt5 on a fresh Ubuntu WSL. Decline to exit and install manually |
+| 7 | **openfoam_ui.py present** | Keep all files in the same `01_utilities\app\` folder — do not move the `.exe` |
 
 ---
 
@@ -550,8 +551,9 @@ pip3 install -r 01_utilities/requirements.txt --break-system-packages
 The tool has two layers: the **Windows launcher** (`.exe`) and the **Python application** (WSL).
 
 **Windows launcher (`openfoam_ui_launcher.py` → `OpenFOAM_UI.exe`)**
-- Stdlib only (`tkinter`, `subprocess`, `sys`, `os`, `time`) — no PyQt5 or OpenFOAM dependencies bundled.
-- Shows a branded splash, runs six pre-flight checks, then calls `python3 openfoam_ui.py` inside WSL via `subprocess.Popen` and immediately closes.
+- Stdlib only (`tkinter`, `subprocess`, `sys`, `os`, `time`, `base64`) — no PyQt5 or OpenFOAM dependencies bundled.
+- Shows a branded splash, runs seven pre-flight steps (WSL, WSLg, OpenFOAM bashrc, python3, packages, interactive install gate, `openfoam_ui.py` present), then calls `python3 openfoam_ui.py` inside WSL via `subprocess.Popen` and immediately closes.
+- Step 6 (install gate) offers a one-click setup: writes a bash script to `$HOME/openfoam_ui_setup.sh` via base64, opens it in `wt.exe` (or `cmd.exe /c start`), and polls a sentinel file for completion. The script always installs Qt/XCB system libraries needed by PyQt5, and conditionally installs OpenFOAM 2506 and any missing pip packages.
 - PyInstaller bundles only this file; all application logic runs live from `.py` files in WSL.
 
 **Python application (WSL)**
@@ -579,12 +581,16 @@ build_exe.bat
 ```
 
 The script:
-1. Installs/upgrades PyInstaller via pip
-2. Deletes old `build\` and `dist\` folders
-3. Runs `pyinstaller openfoam_ui_launcher.spec`
-4. Produces `dist\OpenFOAM_UI.exe`
+1. **Prompts for the version number** (e.g. `1.0.1`) — empty input aborts the build
+2. Verifies `deploy\icons\openfoam_ui.ico` exists (build aborts if missing)
+3. Patches `version_info.txt` — `filevers` / `prodvers` tuples and the `FileVersion` / `ProductVersion` strings — to match the prompted version
+4. Patches the `v1.0.0`-style splash label inside `..\app\openfoam_ui_launcher.py` to match
+5. Installs / upgrades PyInstaller via pip
+6. Deletes old `build\` and `dist\` folders, plus any stale `..\app\OpenFOAM_UI.exe`
+7. Runs `pyinstaller openfoam_ui_launcher.spec`
+8. Copies `dist\OpenFOAM_UI.exe` to `..\app\OpenFOAM_UI.exe`
 
-Copy `dist\OpenFOAM_UI.exe` into `01_utilities\` to replace the existing launcher.
+The version_info.txt and launcher splash label are kept in sync automatically — do not edit either by hand before running the build.
 
 ## Deployment Checklist
 
@@ -593,17 +599,17 @@ Run through this list for every release distributed to end users.
 ### Before building
 
 - [ ] All changes committed and on `main`
-- [ ] `version_info.txt` updated with the new version number
-- [ ] `_Splash` label in `openfoam_ui_launcher.py` (`v1.0.0`) updated to match
+- [ ] Decided the new version number to enter at the build prompt (`version_info.txt` and the splash label are patched automatically by `build_exe.bat`)
 - [ ] Tested the GUI end-to-end in WSL: landing page → Tab 1 → Tab 2 → ParaView
 - [ ] Confirmed `defaults.json` and both Jinja2 templates are correct
 - [ ] `requirements.txt` matches the packages actually imported
+- [ ] `deploy\icons\openfoam_ui.ico` is present (regenerate via `generate_icon.py` if needed)
 
 ### Building the EXE
 
-- [ ] Run `build_exe.bat` on a clean Windows machine (Python 3.9+, no stale `build\`/`dist\`)
+- [ ] Run `build_exe.bat` on a clean Windows machine (Python 3.9+, no stale `build\`/`dist\`); enter the version number at the prompt
 - [ ] Confirm `dist\OpenFOAM_UI.exe` was produced with no PyInstaller errors
-- [ ] Copy `dist\OpenFOAM_UI.exe` → `01_utilities\OpenFOAM_UI.exe`
+- [ ] `build_exe.bat` copies `dist\OpenFOAM_UI.exe` → `..\app\OpenFOAM_UI.exe` automatically — verify the timestamp on the copy
 
 ### Packaging
 
