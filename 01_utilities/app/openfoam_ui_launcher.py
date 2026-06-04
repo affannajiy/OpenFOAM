@@ -155,7 +155,7 @@ class _Splash:
         self._bar = tk.Frame(self._track_frame, bg=self._RED, height=6)
         self._bar.place(x=0, y=0, relheight=1, width=0)
 
-        tk.Label(body, text='v1.0.0', font=('Segoe UI', 8),
+        tk.Label(body, text='v1.0.1', font=('Segoe UI', 8),
                  fg='#444444', bg=self._BG).pack(anchor='e', pady=(10, 0))
 
     def set_status(self, text):
@@ -230,7 +230,7 @@ def _build_setup_script(install_openfoam, install_packages):
         'sudo apt-get install -y \\',
         '  libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \\',
         '  libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \\',
-        '  libxcb-xfixes0 libxcb-cursor0 libxkbcommon-x11-0',
+        '  libxcb-xfixes0 libxcb-cursor0 libxkbcommon-x11-0 libxcb-shape0',
         'echo ""',
         '',
     ]
@@ -575,4 +575,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
