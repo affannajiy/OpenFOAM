@@ -155,7 +155,7 @@ class _Splash:
         self._bar = tk.Frame(self._track_frame, bg=self._RED, height=6)
         self._bar.place(x=0, y=0, relheight=1, width=0)
 
-        tk.Label(body, text='v1.0.1', font=('Segoe UI', 8),
+        tk.Label(body, text='v1.0.2', font=('Segoe UI', 8),
                  fg='#444444', bg=self._BG).pack(anchor='e', pady=(10, 0))
 
     def set_status(self, text):
@@ -230,7 +230,11 @@ def _build_setup_script(install_openfoam, install_packages):
         'sudo apt-get install -y \\',
         '  libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \\',
         '  libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \\',
-        '  libxcb-xfixes0 libxcb-cursor0 libxkbcommon-x11-0 libxcb-shape0',
+        '  libxcb-xfixes0 libxcb-cursor0 libxkbcommon-x11-0 \\',
+        '  libxcb-shape0 libxcb-util1 \\',
+        '  libegl1 libgl1 libglib2.0-0 \\',
+        '  libdbus-1-3 libfontconfig1 libfreetype6 \\',
+        '  x11-utils',
         'echo ""',
         '',
     ]
@@ -252,6 +256,26 @@ def _build_setup_script(install_openfoam, install_packages):
             '',
         ])
     lines.extend([
+        'echo "=== Verifying PyQt5 display connection ==="',
+        'if python3 -c "',
+        'from PyQt5.QtWidgets import QApplication',
+        'import sys',
+        'app = QApplication(sys.argv)',
+        "print('PyQt5 display: OK')",
+        'sys.exit(0)',
+        '" 2>&1; then',
+        '    echo "Display verification passed."',
+        'else',
+        '    echo ""',
+        '    echo "WARNING: PyQt5 could not connect to the display."',
+        '    echo "This may resolve itself after a WSL restart."',
+        '    echo "If the GUI does not appear after launch, run:"',
+        '    echo "  wsl --shutdown"',
+        '    echo "  then relaunch OpenFOAM_UI.exe"',
+        '    echo ""',
+        'fi',
+        'echo ""',
+        '',
         'echo "============================================"',
         'echo " Setup finished."',
         'echo "============================================"',
@@ -361,6 +385,60 @@ def _launch_install_terminal(splash):
 # Pre-flight checks
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _probe_wslg_display(timeout_seconds=15, splash=None):
+    """Probe whether PyQt5 can actually open a display connection inside WSL.
+
+    Spawns a tiny QApplication and watches for the XCB plugin failure that
+    silently kills the GUI on fresh Ubuntu WSL installs.  Retries every
+    second so a freshly-warming WSLg compositor has time to come online.
+
+    Returns:
+        (True, None)  — display is ready (or PyQt5 isn't installed yet, in
+                        which case the package-check step will handle it).
+        (False, msg)  — display never became ready.  ``msg`` is the last
+                        combined stdout/stderr from the probe, for use in
+                        the user-facing error dialog.
+    """
+    # Single-line Python kept inside double quotes so bash sees one -c arg.
+    probe_cmd = (
+        'timeout 8 python3 -c '
+        '"from PyQt5.QtWidgets import QApplication; '
+        'import sys; '
+        'app = QApplication(sys.argv); '
+        "print('display_ok')\" 2>&1"
+    )
+
+    last_output = ''
+    start = time.time()
+    while True:
+        rc, out, err = _wsl(probe_cmd, timeout=12)
+        combined = ((out or '') + '\n' + (err or '')).strip()
+        last_output = combined
+        lowered = combined.lower()
+
+        if 'display_ok' in (out or ''):
+            return True, None
+
+        # PyQt5 not installed yet — probe is inconclusive; let the package
+        # check + install gate handle it on this (or the next) pass.
+        if 'no module named' in lowered or 'modulenotfounderror' in lowered:
+            return True, None
+
+        # XCB / Qt plugin failure is a hard miss — no point retrying.
+        if 'xcb' in lowered or 'platform plugin' in lowered:
+            return False, combined
+
+        elapsed = time.time() - start
+        if elapsed >= timeout_seconds:
+            return False, last_output
+
+        if splash is not None:
+            remaining = max(0, int(timeout_seconds - elapsed))
+            splash.set_status(f'Waiting for display… ({remaining}s)')
+            splash.pump()
+        time.sleep(1)
+
+
 def _do_checks(splash):
     """Run a single pass of pre-flight checks.
 
@@ -370,7 +448,7 @@ def _do_checks(splash):
       'install'                 — interactive install was attempted; caller
                                   should re-run checks from the top.
     """
-    n = 7
+    n = 8
     step = [0]
 
     def tick(label):
@@ -422,6 +500,28 @@ def _do_checks(splash):
             '  wsl --update\n'
             '  wsl --shutdown\n\n'
             'Contact your IT administrator if the problem persists.'
+        )
+
+    # ── Step 2b: WSLg compositor readiness ──────────────────────────────────
+    tick('Waiting for display server…')
+    ready, err_msg = _probe_wslg_display(timeout_seconds=15, splash=splash)
+    if not ready:
+        lowered = (err_msg or '').lower()
+        if 'xcb' in lowered or 'platform plugin' in lowered:
+            return False, 'Missing Display Libraries', (
+                'PyQt5 could not load its display plugin (XCB).\n\n'
+                'This usually means system libraries are missing.\n\n'
+                'Fix: open a WSL terminal and run:\n'
+                '  sudo apt-get install -y \\\n'
+                '    libxcb-cursor0 libegl1 libgl1 x11-utils\n\n'
+                'Then run this launcher again.\n\n'
+                f'Technical detail: {err_msg[:200] if err_msg else "(none)"}'
+            )
+        return False, 'Display Not Ready', (
+            'WSLg display server did not become ready within 15 seconds.\n\n'
+            'Fix: open PowerShell and run:\n'
+            '  wsl --shutdown\n'
+            'Wait 10 seconds, then run this launcher again.'
         )
 
     # ── Step 3: OpenFOAM bashrc — detect, don't fail here ────────────────────
@@ -549,10 +649,21 @@ def main():
     bashrc = _DETECTED_BASHRC or _FOAM_BASHRC_2506
     exe_dir = _get_exe_dir()
     wsl_dir = windows_path_to_wsl(exe_dir)
+
+    # Redirect the GUI's stdout/stderr to a file inside WSL so a silent
+    # XCB crash leaves evidence behind for the watchdog to read back.
+    log_path_wsl = '/tmp/openfoam_ui_launch.log'
+    ready_path_wsl = '/tmp/openfoam_ui_ready'
+
+    # Clear any stale ready-sentinel from a previous run so we don't false-
+    # positive an instant close on a GUI that hasn't started yet.
+    _wsl(f'rm -f {ready_path_wsl}', timeout=5)
+
     launch_cmd = (
         f"source '{bashrc}' && "
         f"cd '{wsl_dir}' && "
-        f"python3 '{wsl_dir}/openfoam_ui.py'"
+        f"python3 '{wsl_dir}/openfoam_ui.py' "
+        f"> {log_path_wsl} 2>&1"
     )
 
     try:
@@ -570,10 +681,55 @@ def main():
         splash.close()
         sys.exit(1)
 
+    # Watchdog: poll at 200 ms granularity for up to 15 s.  Close the splash
+    # the instant the GUI signals readiness (sentinel file appears) so it
+    # doesn't linger after the window is mapped.  If the process exits before
+    # that, show a crash dialog with the log tail.
+    splash.set_status('Starting GUI…')
+    max_iterations = 75       # 75 × 0.2 s = 15 s ceiling
+    for _ in range(max_iterations):
+        time.sleep(0.2)
+        splash.pump()
+
+        ret = proc.poll()
+        if ret is not None:
+            _, log_out, _ = _wsl(
+                f'cat {log_path_wsl} 2>/dev/null || echo "(no log)"',
+                timeout=5,
+            )
+            xcb_hint = ''
+            lowered = (log_out or '').lower()
+            if 'xcb' in lowered or 'platform plugin' in lowered:
+                xcb_hint = (
+                    '\n\nThis looks like a missing display library.\n'
+                    'Fix: open PowerShell and run:\n'
+                    '  wsl --shutdown\n'
+                    'Wait 10 seconds, then relaunch OpenFOAM_UI.exe.\n\n'
+                    'If it still fails, open a WSL terminal and run:\n'
+                    '  sudo apt-get install -y libxcb-cursor0 libegl1 libgl1'
+                )
+            messagebox.showerror('GUI Failed to Start', (
+                f'The GUI exited immediately (code {ret}).\n\n'
+                f'Error output:\n{log_out[:600] if log_out else "(none)"}'
+                f'{xcb_hint}'
+            ))
+            splash.close()
+            sys.exit(1)
+
+        # Ready signal — GUI window is mapped; close splash immediately.
+        _, out, _ = _wsl(
+            f'test -f {ready_path_wsl} && echo yes',
+            timeout=3,
+        )
+        if out.strip() == 'yes':
+            break
+
     splash.close()
 
 
 if __name__ == '__main__':
     main()
+
+
 
 

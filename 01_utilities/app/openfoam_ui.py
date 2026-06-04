@@ -546,6 +546,19 @@ def main():
     app.setStyle("Fusion")
     win = MainWindow()
     win.show()
+
+    # Touch a ready sentinel on the first event-loop iteration — after Qt
+    # has processed the show event and mapped the window.  The launcher
+    # watches for this file so it can close its splash the instant the GUI
+    # is actually visible, rather than waiting for a fixed timeout.
+    def _signal_ready():
+        try:
+            with open('/tmp/openfoam_ui_ready', 'w') as f:
+                f.write('ok')
+        except Exception:
+            pass
+
+    QTimer.singleShot(0, _signal_ready)
     sys.exit(app.exec_())
 
 
