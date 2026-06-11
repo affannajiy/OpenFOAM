@@ -90,7 +90,7 @@ _FAIL_INFO = {
     ),
     'openfoam': (
         'OpenFOAM 2506',
-        'curl -s https://dl.openfoam.com/add-apt-repository.sh | sudo bash\n'
+        'curl -fsSL https://dl.openfoam.com/add-debian-repo.sh | sudo bash\n'
         '    sudo apt-get update\n'
         '    sudo apt-get install -y openfoam2506',
         'dl.openfoam.com may be blocked by a corporate proxy — contact IT.',
@@ -122,12 +122,18 @@ def windows_path_to_wsl(path):
 def _wsl(cmd, timeout=15):
     """Run a bash command inside the selected WSL distro.
 
+    `--exec` is required: without it wsl.exe re-evaluates the command line
+    through the distro's default shell, which expands `$var`/`$?` and strips
+    quotes BEFORE our `bash -c` runs.  That double evaluation silently broke
+    every $-containing check (e.g. the missing-package loop always reported
+    "nothing missing").  With --exec, bash receives `cmd` exactly as written.
+
     Returns (returncode, stdout, stderr).
     """
     args = [_WSL_EXE]
     if _DISTRO:
         args += ['-d', _DISTRO]
-    args += ['bash', '-c', cmd]
+    args += ['--exec', 'bash', '-c', cmd]
     try:
         r = subprocess.run(
             args,
@@ -239,7 +245,7 @@ class _Splash:
         self._bar = tk.Frame(self._track_frame, bg=self._RED, height=6)
         self._bar.place(x=0, y=0, relheight=1, width=0)
 
-        tk.Label(body, text='v1.0.3', font=('Segoe UI', 8),
+        tk.Label(body, text='v1.0.4', font=('Segoe UI', 8),
                  fg='#444444', bg=self._BG).pack(anchor='e', pady=(10, 0))
 
     def set_status(self, text):
@@ -611,9 +617,14 @@ def _build_setup_script(install_openfoam, apt_packages):
     if install_openfoam:
         lines.extend([
             'echo "=== Installing OpenFOAM 2506 ==="',
-            'curl -s https://dl.openfoam.com/add-apt-repository.sh | sudo bash',
-            'sudo apt-get update',
-            'sudo apt-get install -y openfoam2506',
+            # -f makes curl fail on HTTP errors instead of piping an HTML
+            # error page into bash; download-then-run keeps the chain's exit
+            # code meaningful for the status capture below.
+            'curl -fsSL -o /tmp/openfoam_add_repo.sh '
+            'https://dl.openfoam.com/add-debian-repo.sh \\',
+            '  && sudo bash /tmp/openfoam_add_repo.sh \\',
+            '  && sudo apt-get update \\',
+            '  && sudo apt-get install -y openfoam2506',
         ])
         lines.extend(_status_capture('openfoam'))
     lines.extend([
@@ -1135,7 +1146,7 @@ def main():
     distro_args = ['-d', _DISTRO] if _DISTRO else []
     try:
         proc = subprocess.Popen(
-            [_WSL_EXE, *distro_args, 'bash', '-c', launch_cmd],
+            [_WSL_EXE, *distro_args, '--exec', 'bash', '-c', launch_cmd],
             creationflags=_CREATE_NO_WINDOW,
         )
         _log(f'GUI launched (distro={_DISTRO})')
@@ -1196,4 +1207,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
