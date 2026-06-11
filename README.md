@@ -188,21 +188,20 @@ of2506
 | **WSL2** (not WSL1) | `wsl --install` sets this up; `wsl --status` shows current version |
 | **OpenFOAM v2506** inside WSL | See Steps 1–4 above |
 | **Python 3 + pip** inside WSL | Usually pre-installed on Ubuntu; check with `python3 --version` |
-| **PyQt5, numpy** inside WSL | See Step 7; launcher can also install these automatically on first run |
+| **PyQt5, numpy** inside WSL | See Step 7; launcher installs these via apt automatically on first run |
 
 ## What the Launcher Checks
 
-The startup window runs seven pre-flight steps in order and stops at the first failure with a clear error message and fix instructions.
+The startup window runs six pre-flight steps in order and stops at the first failure with a clear error message and fix instructions.
 
 | # | Step | If missing |
 |---|------|------------|
-| 1 | **WSL2 reachable** | Install WSL2: `wsl --install` (PowerShell as Administrator), restart Windows |
-| 2 | **WSLg display** | `wsl --update` then `wsl --shutdown` |
-| 3 | **OpenFOAM bashrc** (prefers 2506, accepts 2312) | Auto-install offered in step 6; or install OpenFOAM 2506 in WSL — see Steps 1–4 above |
-| 4 | **Python 3** | `sudo apt-get install -y python3 python3-pip` inside WSL |
-| 5 | **Python packages** (`PyQt5`, `numpy`) | Auto-install offered in step 6 |
-| 6 | **Interactive install gate** | If OpenFOAM or any Python package is missing, the launcher prompts to open a terminal window and install them — including the Qt/XCB system libraries needed by PyQt5 on a fresh Ubuntu WSL. Decline to exit and install manually |
-| 7 | **openfoam_ui.py present** | Keep all files in the same `01_utilities\app\` folder — do not move the `.exe` |
+| 1 | **WSL2 + distro detect** | Install WSL2: `wsl --install` (PowerShell as Administrator), restart Windows. Launcher auto-detects the right Ubuntu distro from the registry and targets it with `wsl -d <name>` — Docker Desktop machines safe |
+| 2 | **Patient WSL boot** (90 s) | Click **Try Again** — the VM is still booting in the background. Click **Restart WSL** to run `wsl --shutdown` then try again. Never need to restart Windows |
+| 3 | **WSLg display** + **compositor probe** | `wsl --update` then `wsl --shutdown`. XCB failures route to the setup gate automatically instead of a dead-end error |
+| 4 | **OpenFOAM bashrc** (prefers 2506, accepts 2312) | Install OpenFOAM 2506 in WSL — see Steps 1–4 above |
+| 5 | **Python 3 + packages** (`PyQt5`, `numpy`) + **Setup gate** | Single consent dialog; launcher writes `$HOME/openfoam_ui_setup.sh` via base64, opens it in a terminal, polls sentinel for result. Setup is **apt-only** — Qt/XCB libs + `python3-pyqt5` + `python3-numpy` in one transaction. Failure dialog names exact component, exit code, manual fix, and log path |
+| 6 | **openfoam_ui.py present** | Keep all files in the same `01_utilities\app\` folder — do not move the `.exe` |
 
 ---
 
@@ -348,13 +347,9 @@ Restart Windows, then try the launcher again. Contact IT if WSL is blocked by po
 ---
 
 #### "WSL Timed Out"
-WSL did not respond within 10 seconds.
+WSL did not respond within 90 seconds.
 
-**Fix:**
-```powershell
-wsl --shutdown
-```
-Wait 10 seconds, then run the launcher again.
+**Fix:** Click **Try Again** — the VM is still booting in the background and the retry will succeed. Click **Restart WSL** if you want to force `wsl --shutdown` first. You never need to restart Windows.
 
 ---
 
@@ -402,7 +397,7 @@ No supported OpenFOAM bashrc was found.
 **Fix:**
 ```bash
 sudo apt-get update
-sudo apt-get install -y python3 python3-pip
+sudo apt-get install -y python3
 ```
 
 ---
@@ -410,21 +405,19 @@ sudo apt-get install -y python3 python3-pip
 #### "Missing Python Packages"
 One or more of PyQt5, numpy are missing.
 
-**Fix:**
-```bash
-pip3 install PyQt5 numpy --break-system-packages
-```
-Or use system packages:
+**Fix (recommended — apt):**
 ```bash
 sudo apt-get install -y python3-pyqt5 python3-numpy
 ```
 
+Or accept the launcher's setup prompt — it installs both via apt automatically.
+
 ---
 
 #### "Package Installation Failed"
-`pip3 install` ran but returned an error.
+Setup script ran but a component failed.
 
-**Fix:** Open a WSL terminal and run the install command manually to see the full error. Common causes: no internet access in WSL, or a corporate proxy blocking pip.
+**Fix:** The error dialog names the exact component and the manual fix command. Common causes: no internet in WSL, corporate proxy blocking apt. Check `%TEMP%\openfoam_ui_launcher.log` for details.
 
 ---
 
@@ -551,9 +544,10 @@ pip3 install -r 01_utilities/requirements.txt --break-system-packages
 The tool has two layers: the **Windows launcher** (`.exe`) and the **Python application** (WSL).
 
 **Windows launcher (`openfoam_ui_launcher.py` → `OpenFOAM_UI.exe`)**
-- Stdlib only (`tkinter`, `subprocess`, `sys`, `os`, `time`, `base64`) — no PyQt5 or OpenFOAM dependencies bundled.
-- Shows a branded splash, runs seven pre-flight steps (WSL, WSLg, OpenFOAM bashrc, python3, packages, interactive install gate, `openfoam_ui.py` present), then calls `python3 openfoam_ui.py` inside WSL via `subprocess.Popen` and immediately closes.
-- Step 6 (install gate) offers a one-click setup: writes a bash script to `$HOME/openfoam_ui_setup.sh` via base64, opens it in `wt.exe` (or `cmd.exe /c start`), and polls a sentinel file for completion. The script always installs Qt/XCB system libraries needed by PyQt5, and conditionally installs OpenFOAM 2506 and any missing pip packages.
+- Stdlib only (`tkinter`, `subprocess`, `sys`, `os`, `time`, `base64`, `tempfile`, `winreg`) — no PyQt5 or OpenFOAM dependencies bundled.
+- Shows a branded splash, runs six pre-flight steps (distro detect → patient WSL boot → WSLg/compositor → OpenFOAM bashrc → python3/packages/setup gate → `openfoam_ui.py` present), then calls `python3 openfoam_ui.py` inside WSL via `subprocess.Popen` and closes when the GUI is ready.
+- Setup gate writes `$HOME/openfoam_ui_setup.sh` via base64, opens it in `wt.exe` (or `cmd.exe /c start`). Script is **apt-only**: Qt/XCB libs + `python3-pyqt5` + `python3-numpy` in one transaction. Sentinel records per-component status (`aptupdate=ok`, `packages=fail:100`, …); failure dialog names component, exit code, manual fix, and log path.
+- All WSL commands target the detected distro via `wsl -d <name>`; diagnostics go to `%TEMP%\openfoam_ui_launcher.log`.
 - PyInstaller bundles only this file; all application logic runs live from `.py` files in WSL.
 
 **Python application (WSL)**
