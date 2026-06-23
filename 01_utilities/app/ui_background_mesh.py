@@ -254,7 +254,7 @@ class BackgroundMeshWidget(QWidget):
         self._d_edits: dict[str, QLineEdit] = {}
         self._d_errs:  dict[str, QLabel]    = {}
 
-        for name, label in [("dx", "DX (M)"), ("dy", "DY (M)"), ("dz", "DZ (M)")]:
+        for name, label in [("dx", "DX (mm)"), ("dy", "DY (mm)"), ("dz", "DZ (mm)")]:
             col = QVBoxLayout()
             col.setSpacing(4)
             lbl = QLabel(label)
