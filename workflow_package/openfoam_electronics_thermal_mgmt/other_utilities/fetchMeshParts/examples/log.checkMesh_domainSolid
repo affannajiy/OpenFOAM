@@ -1,0 +1,162 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2512                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : _87ed40d2-20251219 OPENFOAM=2512 version=2512
+Arch   : "LSB;label=32;scalar=64"
+Exec   : checkMesh -region domain_solid
+Date   : Mar 20 2026
+Time   : 08:17:12
+Host   : CD19Z64
+PID    : 30187
+I/O    : uncollated
+Case   : /mnt/c/Users/vijag631/OpenFOAM/cases/09_Electronics_Malaysian_team/case_study_2/08_config_2_sim_1
+nProcs : 1
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+allowSystemOperations : Allowing user-supplied system call operations
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create mesh for time = 0
+
+Check mesh...
+
+Time = 0
+
+Mesh stats domain_solid
+    points:           5432260
+    faces:            13728539
+    internal faces:   11661982
+    cells:            4161441
+    faces per cell:   6.10138
+    boundary patches: 1
+    point zones:      1
+    face zones:       28
+    cell zones:       28
+
+Overall number of cells of each type:
+    hexahedra:     4018825
+    prisms:        0
+    wedges:        0
+    pyramids:      0
+    tet wedges:    0
+    tetrahedra:    0
+    polyhedra:     142616
+    Breakdown of polyhedra by number of faces:
+        faces   number of cells
+            6   34228
+            9   84341
+           12   17696
+           15   4540
+           18   1788
+           21   18
+           24   5
+
+Checking topology...
+    Boundary definition OK.
+    Cell to face addressing OK.
+    Point usage OK.
+    Upper triangular ordering OK.
+    Face vertices OK.
+    Number of regions: 1 (OK).
+
+Checking patch topology for multiply connected surfaces...
+                   Patch    Faces   Points  Surface topology
+    domain_solid_to_domain_fluid  2066557  2084075  multiply connected (shared edge)
+                    ".*"  2066557  2084075  multiply connected (shared edge)
+
+Detected 90 bad edges (possibly relevant for finite-area)
+
+Checking faceZone topology for multiply connected surfaces...
+                FaceZone    Faces   Points                  Surface topology
+                     PBB   453463   453951      ok (closed singly connected)
+                     PBT   312655   321704  ok (non-closed singly connected)
+                 HS252-1    70793    71183  multiply connected (shared edge)
+                 HS252-2    74012    74631  ok (non-closed singly connected)
+                 HS252-3    74046    74662  ok (non-closed singly connected)
+                 HS252-4    70779    71265  multiply connected (shared edge)
+                 HS220-1    77111    79807  ok (non-closed singly connected)
+                 HS220-2    78554    81339  ok (non-closed singly connected)
+                 HS220-3    79366    82330  ok (non-closed singly connected)
+                 HS220-4    82948    85816  multiply connected (shared edge)
+                   MFT-1     4712     4775  ok (non-closed singly connected)
+                   MFT-2     4570     4635  ok (non-closed singly connected)
+                   MFT-3     4625     4693  ok (non-closed singly connected)
+                   MFT-4     4531     4717  ok (non-closed singly connected)
+                    SK-1     7940     8849  ok (non-closed singly connected)
+                    SK-2    15286    15973  multiply connected (shared edge)
+                    SK-3     8115     8855  ok (non-closed singly connected)
+                    SK-4     8052     8747  ok (non-closed singly connected)
+                    IC-1    16167    17087  ok (non-closed singly connected)
+                    IC-2    17089    17941  ok (non-closed singly connected)
+                    IC-3    10897    11489  ok (non-closed singly connected)
+                    IC-4    15637    16492  ok (non-closed singly connected)
+                      TF    13894    14127      ok (closed singly connected)
+                     IND     6841     7086  ok (non-closed singly connected)
+              fan-baffle        0        0                        ok (empty)
+           fan-block-new        0        0                        ok (empty)
+                     EMI   342608   342988  ok (non-closed singly connected)
+                   ExEMI   315058   315282  multiply connected (shared edge)
+  <<Writing 1218 conflicting points to set nonManifoldPoints
+
+Checking basic cellZone addressing...
+                CellZone        Cells       Points       VolumeBoundingBox
+                    PBB       725405       988718  5.71846e-05 (0.00611084 0.00278673 0.0065) (0.101469 0.00442524 0.394416)
+                    PBT       583822       800449  4.28879e-05 (0.00535233 0.010811 0.0673218) (0.101386 0.0124556 0.354844)
+                HS252-1       154753       191328  2.07779e-07 (0.0225201 0.0123923 0.0954773) (0.0305561 0.0225759 0.118353)
+                HS252-2       151268       191614  2.03358e-07 (0.00882532 0.0123909 0.104) (0.0168415 0.0225604 0.126862)
+                HS252-3       151243       191586  2.03369e-07 (0.00883 0.0123912 0.0779993) (0.0168422 0.0225636 0.10086)
+                HS252-4       154732       191306  2.07769e-07 (0.0225258 0.0123906 0.0696702) (0.030557 0.0225788 0.0925449)
+                HS220-1       132577       194408  6.81903e-07 (0.069 0.00843856 0.105746) (0.07534 0.0441528 0.127971)
+                HS220-2       135282       198233  6.81787e-07 (0.0912546 0.00849501 0.0696717) (0.0975946 0.0442204 0.0919001)
+                HS220-3       132318       196869   6.8234e-07 (0.07916 0.00843756 0.105745) (0.0855 0.0441527 0.127972)
+                HS220-4       128661       194235  5.92951e-07 (0.0780733 0.00848384 0.0694858) (0.0844133 0.0442219 0.0917465)
+                  MFT-1        11202        14811  4.26022e-08 (0.023511 0.0123941 0.104312) (0.0295813 0.0138316 0.109361)
+                  MFT-2        10965        14491  4.25968e-08 (0.0235103 0.0124001 0.0781531) (0.0295571 0.013839 0.0831857)
+                  MFT-3        11197        14679  4.25994e-08 (0.00979536 0.0123885 0.113337) (0.0158748 0.0138313 0.118347)
+                  MFT-4        11201        14756  4.26013e-08 (0.00979512 0.0123981 0.0870184) (0.0158751 0.0138315 0.092056)
+                   SK-1        28129        39024  1.04032e-06 (0.0828858 0.0124001 0.111695) (0.0875359 0.0342543 0.122002)
+                   SK-2        55227        71750  1.02727e-06 (0.0765474 0.0123887 0.0755896) (0.0811384 0.0342879 0.0860345)
+                   SK-3        29898        41242  1.02135e-06 (0.0892963 0.0124001 0.0756214) (0.0939049 0.0342543 0.0859462)
+                   SK-4        30061        41061  1.04083e-06 (0.0727234 0.0123946 0.111708) (0.0773942 0.0342859 0.122053)
+                   IC-1        21910        36123  4.14071e-06 (0.0838495 0.0123983 0.135273) (0.101527 0.0389031 0.15295)
+                   IC-2        31407        47680  7.55991e-06 (0.0631184 0.0123931 0.135006) (0.0834239 0.0373329 0.150013)
+                   IC-3        16969        27433  3.41638e-06 (0.0396067 0.0124001 0.136513) (0.0526238 0.0326073 0.149521)
+                   IC-4        26002        41183  8.64081e-06 (0.00748359 0.0124001 0.130189) (0.024028 0.0441071 0.146716)
+                     TF        23000        36012  3.20861e-05 (0.0399794 0.0123103 0.0681478) (0.0710864 0.0470121 0.0982472)
+                    IND        14232        20452  1.38114e-05 (0.0396275 0.0124001 0.101909) (0.0676458 0.0303169 0.130027)
+          fan-block-new            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                    EMI       341967       515510  3.95958e-06 (0.00883915 0.00461341 0.0562272) (0.0995077 0.0464988 0.11735)
+                  ExEMI      1048013      1208240  1.09836e-05 (0.0112456 0.00438757 0.015397) (0.0999123 0.0455564 0.0688032)
+           domain_fluid            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+
+Checking basic pointZone addressing...
+               PointZone  PointsBoundingBox
+            frozenPoints       0(1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+
+Checking geometry...
+    Overall domain bounding box (0.00535233 0.00278673 0.0065) (0.101527 0.0470121 0.394416)
+    Mesh has 3 geometric (non-empty/wedge) directions (1 1 1)
+    Mesh has 3 solution (non-empty) directions (1 1 1)
+    Boundary openness (-7.91488e-17 2.21545e-15 -6.16639e-17) OK.
+    Max cell openness = 3.4573e-16 OK.
+    Max aspect ratio = 10.462 OK.
+    Minimum face area = 1.92899e-10. Maximum face area = 1.46468e-05.  Face area magnitudes OK.
+    Min volume = 9.52684e-14. Max volume = 4.97274e-08.  Total volume = 0.000192432.  Cell volumes OK.
+    Mesh non-orthogonality Max: 68.5622 average: 4.03071
+    Non-orthogonality check OK.
+    Face pyramids OK.
+ ***Max skewness = 8.90088, 142 highly skew faces detected which may impair the quality of the results
+  <<Writing 142 skew faces to set skewFaces
+    Coupled point location match (average 0) OK.
+
+Failed 1 mesh checks.
+
+End
+

@@ -1,0 +1,4 @@
+{% set _field = "alphat" %}
+{% set _dims = "[1 -1 -1 0 0 0 0]" %}
+{% set _wf_key = "alphat_wf" %}
+{% include "0/_derived_turb_base.template" %}

@@ -1,0 +1,4 @@
+{% set _field = "nut" %}
+{% set _dims = "[0 2 -1 0 0 0 0]" %}
+{% set _wf_key = "nut_wf" %}
+{% include "0/_derived_turb_base.template" %}

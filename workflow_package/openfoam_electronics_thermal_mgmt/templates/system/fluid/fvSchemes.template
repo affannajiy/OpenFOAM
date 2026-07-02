@@ -1,0 +1,76 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  {{ openfoam_version }}                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "{{ location }}";
+    object      fvSchemes;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+ddtSchemes
+{
+    default             {{ time_scheme }};
+}
+
+gradSchemes
+{
+    default             {{ grad_scheme }};
+    LIMITED             cellLimited {{ grad_scheme }} 1;
+}
+
+divSchemes
+{
+    default             none;
+    div(phi,U)          {{ convection_prefix }}{{ velocity_scheme }};
+{% if not is_incompressible %}
+    div(phi,h)          {{ convection_prefix }}{{ energy_scheme }};
+    div(phi,e)          {{ convection_prefix }}{{ energy_scheme }};
+    div(phi,K)          {{ convection_prefix }}{{ energy_scheme }};
+{% endif %}
+{% if is_turb_active %}
+    div(phi,k)          {{ convection_prefix }}{{ turbulence_scheme }};
+    div(phi,omega)      {{ convection_prefix }}{{ turbulence_scheme }};
+    div(phi,epsilon)    {{ convection_prefix }}{{ turbulence_scheme }};
+{% endif %}
+{% if is_incompressible %}
+    div(nonlinearStress)                Gauss linear;
+    div((nuEff*dev2(T(grad(U)))))       Gauss linear;
+{% else %}
+    div(R)              Gauss linear;
+{% if rad_is_active and rad_model == "fvDOM" %}
+    div(Ji,Ii_h)        Gauss linearUpwind grad(Ii_h);
+{% endif %}
+    div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear;
+{% endif %}
+}
+
+laplacianSchemes
+{
+    default             Gauss linear limited corrected 0.5;
+}
+
+interpolationSchemes
+{
+    default             linear;
+}
+
+snGradSchemes
+{
+    default             limited corrected 0.5;
+}
+
+wallDist
+{
+    method              Poisson;
+}
+
+// ************************************************************************* //

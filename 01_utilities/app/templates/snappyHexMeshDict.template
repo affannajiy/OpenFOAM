@@ -150,6 +150,13 @@ castellatedMeshControls
                 {%- endfor %}
             }
             {%- endif %}
+            {%- if surf.type == "boundary" %}
+            patchInfo
+            {
+                type            wall;
+                inGroups        (walls);
+            }
+            {%- endif %}
             {%- if surf.type == "faceZone" %}
             faceZone        {{ surf.faceZoneName }};
             faceType        {{ surf.faceType }};

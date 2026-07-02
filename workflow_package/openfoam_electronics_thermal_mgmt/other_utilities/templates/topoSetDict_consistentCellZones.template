@@ -1,0 +1,95 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \    /   O peration     | Version:  {{ openfoam_version }}                                 |
+|   \  /    A nd           | Website:  www.openfoam.com                      |
+|    \/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      topoSetDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+actions
+(
+
+    // =========================================================================
+    // Step 1 — Populate zones from surfaces
+    //   Each zone is filled with all cells enclosed by its STL surface.
+{%- if not create_new %}
+    //   The zone is cleared first so that re-runs always start from a clean state.
+{%- endif %}
+    // =========================================================================
+{%- for surface, zone in mapping %}
+
+    // ── {{ zone }}  ←  {{ surface }} ──────────────────────────────────────
+{%- if create_new %}
+    {
+        // Create zone and fill from surface in one step.
+        name        {{ zone }};
+        type        cellZoneSet;
+        action      new;
+        source      searchableSurfaceToCell;
+
+        sourceInfo
+        {
+            surfaceType  triSurfaceMesh;
+            surfaceName  {{ surface }};
+        }
+    }
+{%- else %}
+    {
+        name        {{ zone }};
+        type        cellZoneSet;
+        action      clear;
+    }
+
+    {
+        name        {{ zone }};
+        type        cellZoneSet;
+        action      add;
+        source      searchableSurfaceToCell;
+
+        sourceInfo
+        {
+            surfaceType  triSurfaceMesh;
+            surfaceName  {{ surface }};
+        }
+    }
+{%- endif %}
+{%- endfor %}
+{%- if subtract_groups %}
+
+    // =========================================================================
+    // Step 2 — Subtract higher-priority surfaces to enforce mutual exclusivity
+    //   Cells in overlapping regions are retained by the higher-priority zone
+    //   (lower index in the surface list) and removed from all lower-priority
+    //   zones below.
+    // =========================================================================
+{%- for zone_i, surfaces in subtract_groups %}
+
+    // {{ zone_i }}: remove cells inside {{ surfaces | join(", ") }} (higher-priority zone{{ "s" if surfaces | length > 1 else "" }}).
+{%- for surface_j in surfaces %}
+
+    {
+        name        {{ zone_i }};
+        type        cellZoneSet;
+        action      subtract;
+        source      searchableSurfaceToCell;
+
+        sourceInfo
+        {
+            surfaceType  triSurfaceMesh;
+            surfaceName  {{ surface_j }};
+        }
+    }
+{%- endfor %}
+{%- endfor %}
+{%- endif %}
+
+);
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

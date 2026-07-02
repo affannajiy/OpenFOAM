@@ -164,6 +164,7 @@ class LandingWidget(QWidget):
         self._return_btn = QPushButton("← Return to session")
         self._return_btn.setCursor(Qt.PointingHandCursor)
         self._return_btn.setStyleSheet(STYLE_BTN_GHOST)
+        self._return_btn.setToolTip("Go back to the utility you already have open.")
         self._return_btn.setVisible(False)
         self._return_btn.clicked.connect(self.return_clicked)
         content.addWidget(self._return_btn, 0, Qt.AlignLeft)
@@ -293,6 +294,8 @@ class LandingWidget(QWidget):
 
         self._btn_new  = QPushButton("New project")
         self._btn_open = QPushButton("Open existing")
+        self._btn_new.setToolTip("Create a fresh case folder with stub dictionaries.")
+        self._btn_open.setToolTip("Point to an existing OpenFOAM case on disk.")
         for btn in (self._btn_new, self._btn_open):
             btn.setFixedHeight(30)
             btn.setCursor(Qt.PointingHandCursor)
@@ -328,6 +331,7 @@ class LandingWidget(QWidget):
         vbox.addWidget(self._field_label("P R O J E C T   N A M E"))
         self._name_edit = QLineEdit("my_case")
         self._name_edit.setStyleSheet(STYLE_ENTRY)
+        self._name_edit.setToolTip("Folder name for the new case. Avoid spaces.")
         self._name_edit.textChanged.connect(self._update_preview)
         self._name_edit.textChanged.connect(self._update_continue_state)
         vbox.addWidget(self._name_edit)
@@ -337,12 +341,16 @@ class LandingWidget(QWidget):
         loc_row.setSpacing(8)
         self._loc_edit = QLineEdit(os.path.expanduser("~/OpenFOAM"))
         self._loc_edit.setStyleSheet(STYLE_ENTRY)
+        self._loc_edit.setToolTip(
+            "Where the case folder is created. Must be reachable\n"
+            "from WSL under /mnt/ (e.g. C:\\OpenFOAM).")
         self._loc_edit.textChanged.connect(self._update_preview)
         self._loc_edit.textChanged.connect(self._update_continue_state)
         browse_loc = QPushButton("Browse…")
         browse_loc.setFixedWidth(90)
         browse_loc.setCursor(Qt.PointingHandCursor)
         browse_loc.setStyleSheet(STYLE_BTN_SMALL_RED)
+        browse_loc.setToolTip("Pick the parent folder for the new case.")
         browse_loc.clicked.connect(self._browse_location)
         loc_row.addWidget(self._loc_edit, 1)
         loc_row.addWidget(browse_loc)
@@ -351,6 +359,11 @@ class LandingWidget(QWidget):
         vbox.addWidget(self._field_label("T E M P L A T E"))
         self._template_combo = QComboBox()
         self._template_combo.setStyleSheet(STYLE_COMBO)
+        self._template_combo.setToolTip(
+            "What to put in the new case:\n"
+            "Empty     = folders + stub dicts only\n"
+            "From STL  = also fill triSurface/ from an STL\n"
+            "Copy      = clone an existing case")
         self._template_combo.addItems([
             "Empty case (constant/, system/, 0/)",
             "From STL — auto-populate triSurface/",
@@ -382,6 +395,9 @@ class LandingWidget(QWidget):
         browse_btn = QPushButton("Browse for case folder…")
         browse_btn.setCursor(Qt.PointingHandCursor)
         browse_btn.setStyleSheet(STYLE_BTN_SMALL_RED)
+        browse_btn.setToolTip(
+            "Pick an existing case folder.\n"
+            "Must contain system/controlDict.")
         browse_btn.clicked.connect(self._browse_open_case)
         vbox.addWidget(browse_btn)
 
@@ -503,6 +519,7 @@ class LandingWidget(QWidget):
         del_btn = QPushButton("×")
         del_btn.setFixedSize(24, 24)
         del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.setToolTip("Remove from recents (does not delete the folder).")
         del_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
@@ -613,6 +630,7 @@ class LandingWidget(QWidget):
         card = QFrame()
         card.setObjectName(f"util_card_{uid}")
         card.setCursor(Qt.PointingHandCursor)
+        card.setToolTip(f"{desc}. Click to select, double-click to open.")
         self._style_util_card(card, selected=False)
 
         row = QHBoxLayout(card)

@@ -62,6 +62,21 @@ PLURAL_MAP     = {"wall": "walls", "patch": "patches", "faceZone": "faceZones"}
 # here means every widget automatically picks up any visual tweak without code
 # changes in the individual tab files.
 
+# Applied once, app-wide, via QApplication.setStyleSheet() so every tooltip in
+# the GUI (Sections 01-05, headers, buttons) shares one look instead of each
+# platform's default OS tooltip.
+STYLE_TOOLTIP = f"""
+    QToolTip {{
+        background: {BG_CARD};
+        color: {TEXT_PRIMARY};
+        border: 2px solid {KS_RED};
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 12px;
+        font-family: Consolas, monospace;
+    }}
+"""
+
 STYLE_BTN_PRIMARY = f"""
     QPushButton {{
         background: {KS_RED};
@@ -268,6 +283,17 @@ STYLE_SCROLL = f"""
     QScrollArea {{ background: {BG_APP}; border: none; }}
 """
 
+# Qt merges an owner widget's own stylesheet into the tooltip shown over it, so
+# a widget rule like `color: KS_RED` (header labels) or `color: TEXT_PRIMARY`
+# (combos) leaks into its tooltip and beats the app-wide QToolTip rule — the
+# tooltip came out red-on-dark instead of black-on-white.  Appending the
+# QToolTip block to every widget-level stylesheet forces the white bg / black
+# text / red rounded border everywhere the tooltip is actually rendered.
+for _n in ("STYLE_BTN_PRIMARY", "STYLE_BTN_GHOST", "STYLE_BTN_SMALL_GHOST",
+           "STYLE_BTN_SMALL_RED", "STYLE_ENTRY", "STYLE_ENTRY_MONO",
+           "STYLE_SPINBOX", "STYLE_CHECKBOX", "STYLE_COMBO", "STYLE_SCROLL"):
+    globals()[_n] += STYLE_TOOLTIP
+
 # ── PlusMinusSpinBox ──────────────────────────────────────────────────────────
 
 def _pm_btn_ss(border_radius: str) -> str:
@@ -316,7 +342,7 @@ class PlusMinusSpinBox(QWidget):
                 border: 1px solid {BORDER};
                 border-radius: 4px;
             }}
-        """)
+        """ + STYLE_TOOLTIP)
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)

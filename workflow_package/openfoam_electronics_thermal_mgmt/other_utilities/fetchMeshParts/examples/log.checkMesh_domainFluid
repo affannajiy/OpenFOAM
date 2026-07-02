@@ -1,0 +1,175 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2512                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : _87ed40d2-20251219 OPENFOAM=2512 version=2512
+Arch   : "LSB;label=32;scalar=64"
+Exec   : checkMesh -region domain_fluid
+Date   : Mar 20 2026
+Time   : 08:13:48
+Host   : CD19Z64
+PID    : 30155
+I/O    : uncollated
+Case   : /mnt/c/Users/vijag631/OpenFOAM/cases/09_Electronics_Malaysian_team/case_study_2/08_config_2_sim_1
+nProcs : 1
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+allowSystemOperations : Allowing user-supplied system call operations
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create mesh for time = 0
+
+Check mesh...
+
+Time = 0
+
+Mesh stats domain_fluid
+    points:           8448860
+    faces:            21020806
+    internal faces:   18857969
+    cells:            6290163
+    faces per cell:   6.33986
+    boundary patches: 7
+    point zones:      1
+    face zones:       29
+    cell zones:       30
+
+Overall number of cells of each type:
+    hexahedra:     5553136
+    prisms:        543
+    wedges:        0
+    pyramids:      0
+    tet wedges:    27
+    tetrahedra:    0
+    polyhedra:     736457
+    Breakdown of polyhedra by number of faces:
+        faces   number of cells
+            5   87
+            6   133354
+            7   2
+            8   6
+            9   512854
+           10   150
+           11   20
+           12   72433
+           15   15349
+           18   2188
+           21   14
+
+Checking topology...
+    Boundary definition OK.
+    Cell to face addressing OK.
+    Point usage OK.
+    Upper triangular ordering OK.
+    Face vertices OK.
+    Number of regions: 1 (OK).
+
+Checking patch topology for multiply connected surfaces...
+                   Patch    Faces   Points  Surface topology
+                  Inflow      861      958  ok (non-closed singly connected)
+                 Outflow      578      646  ok (non-closed singly connected)
+               all_walls    60878    61682  ok (non-closed singly connected)
+           fan-block-new    29455    30300      ok (closed singly connected)
+    domain_fluid_to_domain_solid  2066557  2084075  multiply connected (shared edge)
+         fanPatch_master     2254     2640  ok (non-closed singly connected)
+          fanPatch_slave     2254     2640  ok (non-closed singly connected)
+                    ".*"  2162837  2179529  multiply connected (shared edge)
+
+Detected 4981 bad edges (possibly relevant for finite-area)
+
+Checking faceZone topology for multiply connected surfaces...
+                FaceZone    Faces   Points                  Surface topology
+                     PBB   450639   451353  ok (non-closed singly connected)
+                     PBT   302982   309204  ok (non-closed singly connected)
+                 HS252-1    62867    63435  ok (non-closed singly connected)
+                 HS252-2    69978    70545  ok (non-closed singly connected)
+                 HS252-3    69976    70543  multiply connected (shared edge)
+                 HS252-4    62894    63461  multiply connected (shared edge)
+                 HS220-1    71443    74351  multiply connected (shared edge)
+                 HS220-2    71783    74744  multiply connected (shared edge)
+                 HS220-3    73694    76869  multiply connected (shared edge)
+                 HS220-4    73216    76293  multiply connected (shared edge)
+                   MFT-1     1993     2230  multiply connected (shared edge)
+                   MFT-2     1879     2117  multiply connected (shared edge)
+                   MFT-3     1975     2207  ok (non-closed singly connected)
+                   MFT-4     1982     2217  multiply connected (shared edge)
+                    SK-1     7769     8434  ok (non-closed singly connected)
+                    SK-2     8955     9751  multiply connected (shared edge)
+                    SK-3     6857     7517  ok (non-closed singly connected)
+                    SK-4     8010     8651  multiply connected (shared edge)
+                    IC-1    14859    15702  multiply connected (shared edge)
+                    IC-2    14438    15318  ok (non-closed singly connected)
+                    IC-3     9282     9893  ok (non-closed singly connected)
+                    IC-4    13225    14144  ok (non-closed singly connected)
+                      TF     8884     9293  ok (non-closed singly connected)
+                     IND     2853     3130  multiply connected (shared edge)
+              fan-baffle        0        0                        ok (empty)
+           fan-block-new    29455    30300      ok (closed singly connected)
+                     EMI   342366   342790  ok (non-closed singly connected)
+                   ExEMI   312280   312972  ok (non-closed singly connected)
+                fanPatch     4508     2640  multiply connected (shared edge)
+  <<Writing 3199 conflicting points to set nonManifoldPoints
+
+Checking basic cellZone addressing...
+                CellZone        Cells       Points       VolumeBoundingBox
+                    PBB            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                    PBT            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                HS252-1            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                HS252-2            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                HS252-3            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                HS252-4            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                HS220-1            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                HS220-2            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                HS220-3            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                HS220-4            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                  MFT-1            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                  MFT-2            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                  MFT-3            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                  MFT-4            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                   SK-1            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                   SK-2            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                   SK-3            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                   SK-4            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                   IC-1            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                   IC-2            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                   IC-3            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                   IC-4            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                     TF            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                    IND            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+          fan-block-new            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                    EMI            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+                  ExEMI            0            0            0 (1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+           domain_fluid      6290163      8448860   0.00968428 (-0.000122493 -1.57432e-06 -1.19115e-06) (0.230008 0.106057 0.409046)
+                     B1        27205        40441  9.23641e-06 (0.029901 0.0123103 0.0810292) (0.0412327 0.0442501 0.112719)
+                     B2        25557        40760  7.16943e-06 (0.0673988 0.0123242 0.0749038) (0.0787852 0.0446613 0.1057)
+
+Checking basic pointZone addressing...
+               PointZone  PointsBoundingBox
+            frozenPoints       0(1e+150 1e+150 1e+150) (-1e+150 -1e+150 -1e+150)
+
+Checking geometry...
+    Overall domain bounding box (-0.000122493 -1.57432e-06 -1.19115e-06) (0.230008 0.106057 0.409046)
+    Mesh has 3 geometric (non-empty/wedge) directions (1 1 1)
+    Mesh has 3 solution (non-empty) directions (1 1 1)
+    Boundary openness (-6.35799e-17 -5.60913e-14 3.53014e-17) OK.
+    Max cell openness = 3.54478e-16 OK.
+    Max aspect ratio = 11.425 OK.
+    Minimum face area = 8.1944e-11. Maximum face area = 0.000118306.  Face area magnitudes OK.
+    Min volume = 8.49388e-14. Max volume = 7.03596e-07.  Total volume = 0.00968428.  Cell volumes OK.
+    Mesh non-orthogonality Max: 65.245 average: 5.2323
+    Non-orthogonality check OK.
+    Face pyramids OK.
+ ***Max skewness = 10.828, 913 highly skew faces detected which may impair the quality of the results
+  <<Writing 913 skew faces to set skewFaces
+    Coupled point location match (average 0) OK.
+
+Failed 1 mesh checks.
+
+End
+

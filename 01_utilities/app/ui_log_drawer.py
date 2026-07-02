@@ -182,12 +182,14 @@ class LogDrawer(QWidget):
 
         self._copy_btn = QPushButton("Copy")
         self._copy_btn.setStyleSheet(_btn_style)
+        self._copy_btn.setToolTip("Copy the whole log to the clipboard.")
         self._copy_btn.setVisible(False)
         self._copy_btn.clicked.connect(self._copy_log)
         hdr_row.addWidget(self._copy_btn)
 
         self._clear_btn = QPushButton("Clear")
         self._clear_btn.setStyleSheet(_btn_style)
+        self._clear_btn.setToolTip("Clear all log text.")
         self._clear_btn.setVisible(False)
         self._clear_btn.clicked.connect(self._clear)
         hdr_row.addWidget(self._clear_btn)
@@ -203,6 +205,7 @@ class LogDrawer(QWidget):
             }}
             QPushButton:hover {{ color: {LOG_FG}; }}
         """)
+        self._chevron_btn.setToolTip("Collapse or expand the output log.")
         self._chevron_btn.clicked.connect(self._toggle)
         hdr_row.addWidget(self._chevron_btn)
 

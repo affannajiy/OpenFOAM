@@ -1,0 +1,2357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>snappy_inputs.json Generator</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; background: #f0f2f5; color: #222; min-height: 100vh; }
+h1 { font-size: 1.4rem; font-weight: 700; }
+.subtitle { color: #555; font-size: 0.85rem; margin-top: 2px; }
+.page-header { background: #fff; border-bottom: 1px solid #dde1e7; padding: 14px 24px; display: flex; align-items: center; gap: 10px; }
+.page-header .icon { font-size: 1.6rem; }
+.content { padding: 18px 24px; display: flex; flex-direction: column; gap: 14px; }
+.card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.10); padding: 14px 18px; }
+.card-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 10px; color: #1a2533; display: flex; align-items: center; gap: 8px; }
+.badge { background: #0066cc; color: #fff; border-radius: 10px; padding: 1px 8px; font-size: 0.75rem; font-weight: 600; }
+/* Settings panel — key-value rows */
+.settings-panel { display: flex; flex-direction: column; gap: 0; }
+.kv-row { display: flex; align-items: flex-start; padding: 5px 0; border-bottom: 1px solid #f0f2f5; gap: 0; }
+.kv-row:last-child { border-bottom: none; }
+.kv-label { width: 200px; min-width: 200px; font-size: 0.8rem; font-weight: 600; color: #444; padding-top: 5px; }
+.kv-value { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; flex: 1; }
+.kv-sub { margin-top: 4px; padding: 8px 10px; background: #f7f9fb; border: 1px dashed #c4cdd8; border-radius: 6px; width: fit-content; max-width: 100%; }
+#loc-multi-table { width: auto; }
+#loc-multi-table th, #loc-multi-table td { white-space: nowrap; }
+.kv-hint { font-size: 0.72rem; color: #888; font-style: italic; width: 100%; margin-top: 2px; }
+.unit-badge { font-size: 0.75rem; color: #0055aa; font-weight: 700; background: #e8f0fb; padding: 1px 6px; border-radius: 3px; white-space: nowrap; align-self: center; }
+.field-hint { font-size: 0.72rem; color: #888; font-style: italic; margin-top: 4px; }
+/* keep .field-group for any legacy uses in tables */
+.field-group { display: flex; flex-direction: column; gap: 3px; }
+.field-group label { font-size: 0.78rem; font-weight: 600; color: #444; text-transform: uppercase; letter-spacing: 0.03em; }
+.field-group select, .field-group input[type=number], .field-group input[type=text] {
+  border: 1px solid #bfc8d4; border-radius: 5px; padding: 4px 8px; font-size: 13px; background: #fff; color: #222;
+  min-width: 60px; outline: none;
+}
+.field-group select:focus, .field-group input:focus { border-color: #0066cc; }
+.xyz-group { display: flex; gap: 6px; align-items: center; }
+.xyz-group input { width: 70px; }
+.xyz-label { font-size: 0.78rem; color: #666; }
+.radio-group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.radio-group label { display: flex; align-items: center; gap: 4px; cursor: pointer; font-weight: normal; font-size: 13px; text-transform: none; letter-spacing: 0; }
+.grid-inputs { display: flex; gap: 6px; align-items: center; }
+.grid-inputs input { width: 62px; }
+/* Toolbar */
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 5px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-weight: 600; transition: background 0.15s, box-shadow 0.15s; }
+.btn:hover { box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+.btn-primary { background: #0066cc; color: #fff; border-color: #0055aa; }
+.btn-primary:hover { background: #0055aa; }
+.btn-success { background: #28a745; color: #fff; border-color: #1e8036; }
+.btn-success:hover { background: #1e8036; }
+.btn-danger { background: #dc3545; color: #fff; border-color: #b52d3a; }
+.btn-danger:hover { background: #b52d3a; }
+.btn-secondary { background: #e8edf2; color: #333; border-color: #c8d0da; }
+.btn-secondary:hover { background: #d5dce5; }
+.btn-sm { padding: 3px 8px; font-size: 12px; font-weight: 600; }
+.btn-icon { padding: 2px 7px; font-size: 13px; line-height: 1.4; }
+/* Table */
+.table-wrap { overflow-x: auto; border-radius: 6px; border: 1px solid #dde3ea; }
+table { border-collapse: collapse; width: 100%; }
+thead th { background: #2c3e50; color: #e8edf3; font-size: 11px; font-weight: 700; padding: 7px 8px; text-align: center; white-space: nowrap; position: sticky; top: 0; z-index: 2; border-right: 1px solid #3a526b; }
+thead th:last-child { border-right: none; }
+tbody tr:nth-child(even):not(.subregion-row) { background: #f7f9fb; }
+tbody tr:nth-child(odd):not(.subregion-row) { background: #fff; }
+tbody td { padding: 5px 7px; border-bottom: 1px solid #eaecef; border-right: 1px solid #f0f2f5; vertical-align: middle; text-align: center; }
+tbody td:last-child { border-right: none; }
+.subregion-row td { background: #eef2ff; border-left: 3px solid #6070cc; }
+.addregion-row td { background: #f5f7ff; }
+.row-num { color: #888; font-size: 11px; min-width: 22px; }
+input[type=number], input[type=text] { border: 1px solid #bfc8d4; border-radius: 4px; padding: 3px 5px; font-size: 12px; background: #fff; color: #222; outline: none; }
+input[type=number]:focus, input[type=text]:focus { border-color: #0066cc; }
+input:disabled, select:disabled { background: #e9ecef; color: #aaa; cursor: not-allowed; border-color: #d0d5dc; }
+select { border: 1px solid #bfc8d4; border-radius: 4px; padding: 3px 5px; font-size: 12px; background: #fff; color: #222; outline: none; }
+input[type=checkbox] { width: 14px; height: 14px; cursor: pointer; accent-color: #0066cc; }
+input[type=checkbox]:disabled { cursor: not-allowed; opacity: 0.45; }
+.del-btn { background: none; border: 1px solid #dc3545; color: #dc3545; border-radius: 4px; cursor: pointer; padding: 1px 7px; font-size: 14px; font-weight: 700; line-height: 1.4; }
+.del-btn:hover { background: #dc3545; color: #fff; }
+.add-region-link { background: none; border: none; color: #0066cc; cursor: pointer; font-size: 12px; text-decoration: underline; padding: 2px 4px; }
+.add-region-link:hover { color: #0044aa; }
+.name-input { min-width: 90px; width: 110px; }
+.shape-param-group { display: flex; gap: 3px; align-items: center; }
+.shape-param-group .lbl { font-size: 11px; color: #666; white-space: nowrap; }
+.num-sm { width: 52px; }
+.num-med { width: 62px; }
+.no-data { text-align: center; color: #aaa; font-style: italic; padding: 22px; }
+[title] { cursor: help; }
+.shapes-add-btn-row { margin-bottom: 8px; }
+.script-settings-note { font-size: 0.75rem; color: #e07800; margin-top: 3px; }
+.dl-card .toolbar { gap: 10px; }
+.zone-chip { display:inline-flex; align-items:center; gap:2px; background:#ddeeff; color:#003d99; border-radius:10px; padding:1px 6px 1px 9px; font-size:11px; font-weight:600; margin:2px; white-space:nowrap; }
+.zone-chip-del { cursor:pointer; color:#003d99; font-size:13px; line-height:1.2; background:none; border:none; padding:0 2px; font-weight:700; }
+.zone-chip-del:hover { color:#cc0000; }
+.unassigned-chip { background:#fde8e8; color:#aa0000; border-radius:10px; padding:1px 9px; font-size:11px; font-weight:600; display:inline-block; margin:2px; }
+.cht-region-block { border:1px solid #dde3ea; border-radius:6px; margin-bottom:6px; overflow:hidden; }
+.cht-region-header { display:flex; align-items:flex-start; gap:8px; padding:7px 10px; background:#fff; flex-wrap:wrap; }
+.cht-zone-chip-area { display:flex; flex-wrap:wrap; align-items:center; gap:2px; flex:1; min-width:0; }
+.cht-assign-panel { background:#f7f9fb; border-top:1px solid #e0e4ea; padding:10px 14px; }
+.cht-assign-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:3px 12px; max-height:200px; overflow-y:auto; }
+.cht-assign-grid label { display:flex; align-items:center; gap:5px; font-size:12px; cursor:pointer; padding:2px 0; font-weight:normal; text-transform:none; letter-spacing:0; }
+.cht-status-ok { color:#1a7a1a; font-weight:700; font-size:0.8rem; }
+.cht-status-warn { color:#cc5500; font-weight:700; font-size:0.8rem; }
+.cht-status-info { color:#0066cc; font-weight:700; font-size:0.8rem; }
+</style>
+</head>
+<body>
+<div class="page-header">
+  <span class="icon">🔧</span>
+  <div>
+    <h1>snappy_inputs.json Generator</h1>
+    <div class="subtitle">Configure snappyHexMesh refinement for setup_snappy.py</div>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- Open / File Actions (top) -->
+  <div class="card">
+    <div class="card-title">📁 Open</div>
+    <div class="toolbar">
+      <button class="btn btn-secondary" id="btn-browse">📁 Browse triSurface Folder</button>
+      <input type="file" id="inp-folder" webkitdirectory multiple style="display:none">
+      <button class="btn btn-secondary" id="btn-load">📂 Load snappy_inputs.json</button>
+      <input type="file" id="inp-json" accept=".json" style="display:none">
+      <button class="btn btn-danger" id="btn-clear">🗑 Clear</button>
+    </div>
+  </div>
+
+  <!-- Settings Panel -->
+  <div class="card">
+    <div class="card-title">⚙️ Settings</div>
+    <div class="settings-panel">
+
+      <div class="kv-row">
+        <div class="kv-label">Geometry Unit</div>
+        <div class="kv-value">
+          <select id="s-unit">
+            <option value="mm" selected>mm</option>
+            <option value="cm">cm</option>
+            <option value="m">m</option>
+            <option value="um">um</option>
+            <option value="in">in</option>
+            <option value="ft">ft</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="kv-row">
+        <div class="kv-label">Num Cores</div>
+        <div class="kv-value">
+          <input id="s-numcores" type="number" value="4" min="1" step="1" style="width:72px">
+        </div>
+      </div>
+
+      <div class="kv-row">
+        <div class="kv-label">Reference Geometry</div>
+        <div class="kv-value">
+          <select id="s-refgeo"><option value="">-- select --</option></select>
+        </div>
+      </div>
+
+      <div class="kv-row">
+        <div class="kv-label">Base Grid Cell Size <span style="font-weight:400;font-size:0.72rem;color:#888;">(Level 0)</span></div>
+        <div class="kv-value">
+          <div class="radio-group">
+            <label><input type="radio" name="bgmode" value="uniform" checked> Uniform</label>
+            <label><input type="radio" name="bgmode" value="anisotropic"> Anisotropic</label>
+          </div>
+          <div class="grid-inputs" id="grid-uniform-wrap">
+            <input id="s-bg-u" type="number" value="10" min="0" style="width:72px">
+            <span class="unit-badge" id="unit-badge-bg-u">mm</span>
+          </div>
+          <div class="grid-inputs" id="grid-aniso-wrap" style="display:none">
+            <span class="xyz-label">dx</span><input id="s-bg-dx" type="number" value="10" min="0" style="width:62px" disabled>
+            <span class="xyz-label">dy</span><input id="s-bg-dy" type="number" value="10" min="0" style="width:62px" disabled>
+            <span class="xyz-label">dz</span><input id="s-bg-dz" type="number" value="10" min="0" style="width:62px" disabled>
+            <span class="unit-badge" id="unit-badge-bg-a">mm</span>
+          </div>
+          <span class="kv-hint">Cell size at level N = base / 2<sup>N</sup></span>
+        </div>
+      </div>
+
+      <div class="kv-row">
+        <div class="kv-label">Location(s) In Mesh</div>
+        <div class="kv-value">
+          <div class="radio-group">
+            <label><input type="radio" name="loc-mode" value="single" checked> Single point</label>
+            <label><input type="radio" name="loc-mode" value="multi"> Multiple points</label>
+          </div>
+          <!-- Single mode -->
+          <div id="loc-single-wrap" class="kv-sub">
+            <div class="xyz-group">
+              <span class="xyz-label">x</span><input id="s-lx" type="number" value="0" style="width:72px">
+              <span class="xyz-label">y</span><input id="s-ly" type="number" value="0" style="width:72px">
+              <span class="xyz-label">z</span><input id="s-lz" type="number" value="0" style="width:72px">
+              <span class="unit-badge" id="unit-badge-lim">mm</span>
+            </div>
+          </div>
+          <!-- Multi mode -->
+          <div id="loc-multi-wrap" class="kv-sub" style="display:none;">
+            <table id="loc-multi-table" style="border-collapse:collapse;font-size:0.8rem;margin-bottom:6px;">
+              <thead>
+                <tr>
+                  <th style="padding:3px 6px;background:#2c3e50;color:#e8edf3;font-weight:700;">x</th>
+                  <th style="padding:3px 6px;background:#2c3e50;color:#e8edf3;font-weight:700;">y</th>
+                  <th style="padding:3px 6px;background:#2c3e50;color:#e8edf3;font-weight:700;">z</th>
+                  <th style="padding:3px 6px;background:#2c3e50;color:#e8edf3;font-weight:700;">Zone Name</th>
+                  <th style="padding:3px 6px;background:#2c3e50;color:#e8edf3;"></th>
+                </tr>
+              </thead>
+              <tbody id="loc-multi-tbody"></tbody>
+            </table>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <button class="btn btn-primary btn-sm" id="btn-add-loc">+ Add Point</button>
+              <span style="font-size:0.75rem;color:#888;font-style:italic;">coordinates in <span id="unit-badge-lim2" class="unit-badge">mm</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Geometry Files Table -->
+  <div class="card">
+    <div class="card-title">📄 Geometry Files <span class="badge" id="file-count">0</span></div>
+    <div class="table-wrap">
+      <table id="file-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Filename</th>
+            <th>Include</th>
+            <th title="Multi-region STL: enable to add named solid regions with per-region refinement levels. The geometry regions{} block is written automatically.">Multi-region</th>
+            <th>Surface Type</th>
+            <th>Cell Zone</th>
+            <th>Auto Refine</th>
+            <th title="Surface minimum refinement level">Min Level</th>
+            <th title="Surface maximum refinement level">Max Level</th>
+            <th>Vol Dir</th>
+            <th>Vol Level</th>
+            <th title="Files flagged here are passed to --exclude in Allrun.extra">Not a component</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="file-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Standard Shapes Panel -->
+  <div class="card">
+    <div class="card-title">🔷 Standard Shapes <span class="badge" id="shape-count">0</span></div>
+    <div class="shapes-add-btn-row">
+      <button class="btn btn-primary btn-sm" id="btn-add-shape">+ Add Shape</button>
+    </div>
+    <div class="table-wrap">
+      <table id="shape-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Shape Type</th>
+            <th>Shape Parameters</th>
+            <th>Surface Type</th>
+            <th>Cell Zone</th>
+            <th title="Surface minimum refinement level">Min Level</th>
+            <th title="Surface maximum refinement level">Max Level</th>
+            <th>Vol Dir</th>
+            <th>Vol Level</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="shape-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Allrun.extra Script Settings -->
+  <div class="card">
+    <div class="card-title">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:700;">
+        <input type="checkbox" id="chk-allrun-extra" style="width:15px;height:15px;cursor:pointer;accent-color:#0066cc;">
+        📜 Allrun.extra Script Settings
+      </label>
+    </div>
+    <div id="allrun-extra-body" style="display:none;">
+      <div class="field-group" style="margin-bottom:10px;">
+        <label>Python Utils Dir</label>
+        <input id="s-pyutils" type="text" placeholder="e.g. /mnt/c/Users/.../other_utilities" style="width:100%; max-width:600px;">
+      </div>
+      <div class="field-group">
+        <label>Fluid Cell Zone Name</label>
+        <input id="s-fluidzone" type="text" value="domain_fluid" style="width:200px;">
+      </div>
+      <div class="field-group" style="margin-top:10px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;text-transform:none;letter-spacing:0;">
+          <input type="checkbox" id="chk-transform-pts" style="width:14px;height:14px;cursor:pointer;accent-color:#0066cc;">
+          Scale Mesh to Metres (<code>transformPoints</code>)
+        </label>
+        <div id="transform-pts-body" style="display:none;margin-top:6px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:0.78rem;font-weight:600;color:#444;">Scale factor</span>
+            <input id="s-transform-scale" type="number" step="any" min="0" value="0.001" style="width:90px;">
+            <span id="transform-scale-hint" style="font-size:0.72rem;color:#3a6e00;font-weight:700;background:#eef4e0;padding:1px 6px;border-radius:3px;white-space:nowrap;"></span>
+          </div>
+        </div>
+      </div>
+      <div class="field-group" style="margin-top:14px;border-top:1px solid #e0e4ea;padding-top:12px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:700;font-size:0.9rem;text-transform:none;letter-spacing:0;">
+          <input type="checkbox" id="chk-cht-config" style="width:14px;height:14px;cursor:pointer;accent-color:#0066cc;">
+          🔀 Multi-region / CHT Configuration (<code>splitMeshRegions</code>)
+        </label>
+        <div id="cht-config-body" style="display:none;margin-top:10px;">
+          <div id="cht-status-bar" style="margin-bottom:8px;"></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-weight:600;font-size:0.82rem;color:#1a2533;">Regions</span>
+            <button class="btn btn-primary btn-sm" id="btn-add-region">+ Add Region</button>
+          </div>
+          <div id="cht-regions-wrap"></div>
+          <div id="cht-unassigned-wrap" style="margin-top:10px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Download Files -->
+  <div class="card dl-card">
+    <div class="card-title">💾 Download Files</div>
+    <div class="toolbar">
+      <button class="btn btn-success" id="btn-download">💾 Download snappy_inputs.json</button>
+      <button class="btn btn-primary" id="btn-dl-snappy">📄 Download Allrun.snappy</button>
+      <button class="btn btn-primary" id="btn-dl-extra" disabled title="Enable Allrun.extra Script Settings above">📄 Download Allrun.extra</button>
+      <button class="btn btn-secondary" id="btn-dl-allclean">📄 Download Allclean</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+let _uid = 1;
+function uid() { return _uid++; }
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function stemName(filename) {
+  const lastDot = filename.lastIndexOf('.');
+  return lastDot > 0 ? filename.slice(0, lastDot) : filename;
+}
+
+function parseNum(v, fallback = 0) {
+  const n = parseFloat(v);
+  return isNaN(n) ? fallback : n;
+}
+function parseInt2(v, fallback = 0) {
+  const n = parseInt(v, 10);
+  return isNaN(n) ? fallback : n;
+}
+
+// Parse solid names from ASCII STL text.
+// Returns [] for binary STL or single-solid files.
+function parseSolidNames(text) {
+  // Binary STL detection: null bytes in first 256 chars
+  if (text.slice(0, 256).includes('\0')) return [];
+  const names = [];
+  const re = /^solid\s+(\S[^\r\n]*?)\s*[\r\n]/gm;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const name = m[1].trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names.length > 1 ? names : [];
+}
+
+// ─── Unit Scale Map ───────────────────────────────────────────────────────────
+const UNIT_SCALE_TO_M = { mm: 0.001, cm: 0.01, m: 1.0, um: 1e-6, in: 0.0254, ft: 0.3048 };
+function unitAutoScale(unit) { return UNIT_SCALE_TO_M[unit] ?? 1.0; }
+
+// ─── State ────────────────────────────────────────────────────────────────────
+const state = {
+  settings: {
+    geometryUnit: 'mm',
+    numCores: 4,
+    locationInMesh: [0, 0, 0],
+    locMode: 'single',           // 'single' | 'multi'
+    locationsInMesh: [],         // [{point:[x,y,z], name:''}]
+    referenceGeometry: '',
+    baseGridMode: 'uniform',
+    baseGridUniform: 10,
+    baseGridAniso: [10, 10, 10],
+    pythonUtilsDir: '',
+    fluidZoneName: 'domain_fluid',
+    allrunExtraEnabled: false,
+    transformPointsEnabled: false,
+    transformPointsScale: 0.001,   // effective scale value (auto or manual)
+    transformPointsScaleDirty: false, // true once user has manually edited the input
+    chtConfig: {
+      enabled: false,
+      regions: [],      // [{id, name, zones:[]}]
+      openPanelId: null, // region id whose assignment panel is open
+    },
+  },
+  fileRows: [],
+  shapeRows: [],
+};
+
+function makeFileRow(filename) {
+  return {
+    id: uid(),
+    filename,
+    include: true,
+    multiRegion: false,
+    subRegions: [],
+    surfType: 'faceZone',
+    cellZone: true,
+    auto: true,
+    surfMin: 0,
+    surfMax: 0,
+    volDir: 'inside',
+    volLevel: 0,
+    notAComponent: false,
+  };
+}
+
+function makeShapeRow() {
+  return {
+    id: uid(),
+    name: 'shape_' + (state.shapeRows.length + 1),
+    shapeType: 'searchableSphere',
+    // searchableSphere / searchableDisk / searchableCylinder / searchableCone
+    centre:  [0, 0, 0], radius: 10,
+    point1:  [0, 0, 0], point2: [10, 0, 0],
+    radius1: 5,         radius2: 10,
+    // searchableBox
+    min: [0, 0, 0], max: [10, 10, 10],
+    // searchableRotatedBox / searchablePlate / searchableDisk
+    origin: [0, 0, 0], span: [10, 10, 0],
+    e1: [1, 0, 0],     e3: [0, 0, 1],
+    normal: [0, 0, 1],
+    // searchablePlane
+    planeType: 'pointAndNormal',
+    basePoint: [0, 0, 0],
+    point3: [0, 10, 0],
+    planeA: 0, planeB: 0, planeC: 1, planeD: 0,
+    // searchableSurfaceWithGaps
+    surface: '', gap: 0.1,
+    // refinement (no Auto for shapes)
+    surfType: 'none', cellZone: false,
+    surfMin: 0, surfMax: 0,
+    volDir: 'none', volLevel: 0,
+  };
+}
+
+function makeSubRegion() {
+  return { id: uid(), name: '', surfMin: 0, surfMax: 0 };
+}
+
+// ─── Settings Bindings ────────────────────────────────────────────────────────
+function bindSettings() {
+  document.getElementById('s-unit').addEventListener('change', e => {
+    state.settings.geometryUnit = e.target.value;
+    updateUnitBadges();
+    updateTransformScaleFromUnit();
+  });
+  document.getElementById('s-numcores').addEventListener('input', e => {
+    state.settings.numCores = parseInt2(e.target.value, 4);
+  });
+  document.querySelectorAll('input[name=loc-mode]').forEach(r => {
+    r.addEventListener('change', e => {
+      state.settings.locMode = e.target.value;
+      updateLocModeUI();
+    });
+  });
+  document.getElementById('s-lx').addEventListener('input', e => {
+    state.settings.locationInMesh[0] = parseNum(e.target.value);
+  });
+  document.getElementById('s-ly').addEventListener('input', e => {
+    state.settings.locationInMesh[1] = parseNum(e.target.value);
+  });
+  document.getElementById('s-lz').addEventListener('input', e => {
+    state.settings.locationInMesh[2] = parseNum(e.target.value);
+  });
+  document.getElementById('btn-add-loc').addEventListener('click', () => {
+    state.settings.locationsInMesh.push({ point: [0, 0, 0], name: '' });
+    renderLocMultiTable();
+  });
+  document.getElementById('loc-multi-tbody').addEventListener('input', e => {
+    const el = e.target;
+    const idx = parseInt(el.dataset.locIdx, 10);
+    if (isNaN(idx)) return;
+    const entry = state.settings.locationsInMesh[idx];
+    if (!entry) return;
+    if (el.dataset.field === 'name') {
+      entry.name = el.value;
+    } else if (el.dataset.field === 'x') {
+      entry.point[0] = parseNum(el.value);
+    } else if (el.dataset.field === 'y') {
+      entry.point[1] = parseNum(el.value);
+    } else if (el.dataset.field === 'z') {
+      entry.point[2] = parseNum(el.value);
+    }
+  });
+  document.getElementById('loc-multi-tbody').addEventListener('click', e => {
+    if (e.target.dataset.action === 'delete-loc') {
+      const idx = parseInt(e.target.dataset.locIdx, 10);
+      state.settings.locationsInMesh.splice(idx, 1);
+      renderLocMultiTable();
+    }
+  });
+  document.getElementById('s-refgeo').addEventListener('change', e => {
+    state.settings.referenceGeometry = e.target.value;
+  });
+  document.querySelectorAll('input[name=bgmode]').forEach(r => {
+    r.addEventListener('change', e => {
+      state.settings.baseGridMode = e.target.value;
+      updateBaseGridUI();
+    });
+  });
+  document.getElementById('s-bg-u').addEventListener('input', e => {
+    state.settings.baseGridUniform = parseNum(e.target.value, 10);
+  });
+  document.getElementById('s-bg-dx').addEventListener('input', e => {
+    state.settings.baseGridAniso[0] = parseNum(e.target.value, 10);
+  });
+  document.getElementById('s-bg-dy').addEventListener('input', e => {
+    state.settings.baseGridAniso[1] = parseNum(e.target.value, 10);
+  });
+  document.getElementById('s-bg-dz').addEventListener('input', e => {
+    state.settings.baseGridAniso[2] = parseNum(e.target.value, 10);
+  });
+  document.getElementById('s-pyutils').addEventListener('input', e => {
+    state.settings.pythonUtilsDir = e.target.value;
+  });
+  document.getElementById('s-fluidzone').addEventListener('input', e => {
+    state.settings.fluidZoneName = e.target.value || 'domain_fluid';
+    if (state.settings.chtConfig.enabled) renderChtSection();
+  });
+  document.getElementById('chk-transform-pts').addEventListener('change', e => {
+    const enabled = e.target.checked;
+    state.settings.transformPointsEnabled = enabled;
+    document.getElementById('transform-pts-body').style.display = enabled ? 'block' : 'none';
+    if (enabled && !state.settings.transformPointsScaleDirty) {
+      updateTransformScaleFromUnit();
+    }
+    updateTransformScaleHint();
+  });
+  document.getElementById('s-transform-scale').addEventListener('input', e => {
+    state.settings.transformPointsScale = parseNum(e.target.value, unitAutoScale(state.settings.geometryUnit));
+    state.settings.transformPointsScaleDirty = true;
+    updateTransformScaleHint();
+  });
+}
+
+function updateUnitBadges() {
+  const u = state.settings.geometryUnit;
+  document.querySelectorAll('.unit-badge').forEach(el => { el.textContent = u; });
+}
+
+function updateTransformScaleFromUnit() {
+  if (!state.settings.transformPointsScaleDirty) {
+    const auto = unitAutoScale(state.settings.geometryUnit);
+    state.settings.transformPointsScale = auto;
+    document.getElementById('s-transform-scale').value = auto;
+  }
+  updateTransformScaleHint();
+}
+
+function updateTransformScaleHint() {
+  const unit = state.settings.geometryUnit;
+  const auto = unitAutoScale(unit);
+  const hint = document.getElementById('transform-scale-hint');
+  if (unit === 'm') {
+    hint.textContent = 'no scaling needed (unit = m)';
+  } else {
+    hint.textContent = `auto: ${auto} (${unit} → m)`;
+  }
+}
+
+function updateBaseGridUI() {
+  const isAniso = state.settings.baseGridMode === 'anisotropic';
+  document.getElementById('grid-uniform-wrap').style.display = isAniso ? 'none' : 'flex';
+  document.getElementById('grid-aniso-wrap').style.display = isAniso ? 'flex' : 'none';
+  document.getElementById('s-bg-u').disabled = isAniso;
+  document.getElementById('s-bg-dx').disabled = !isAniso;
+  document.getElementById('s-bg-dy').disabled = !isAniso;
+  document.getElementById('s-bg-dz').disabled = !isAniso;
+}
+
+function updateLocModeUI() {
+  const isMulti = state.settings.locMode === 'multi';
+  document.getElementById('loc-single-wrap').style.display = isMulti ? 'none' : 'flex';
+  document.getElementById('loc-multi-wrap').style.display  = isMulti ? 'block' : 'none';
+  if (isMulti) renderLocMultiTable();
+}
+
+function renderLocMultiTable() {
+  const tbody = document.getElementById('loc-multi-tbody');
+  const locs = state.settings.locationsInMesh;
+  tbody.innerHTML = locs.map((entry, idx) => `
+    <tr>
+      <td><input type="number" step="any" value="${entry.point[0]}" data-loc-idx="${idx}" data-field="x" style="width:68px;"></td>
+      <td><input type="number" step="any" value="${entry.point[1]}" data-loc-idx="${idx}" data-field="y" style="width:68px;"></td>
+      <td><input type="number" step="any" value="${entry.point[2]}" data-loc-idx="${idx}" data-field="z" style="width:68px;"></td>
+      <td><input type="text" value="${entry.name}" data-loc-idx="${idx}" data-field="name" placeholder="e.g. v_fluid" style="width:130px;"></td>
+      <td><button class="del-btn" data-action="delete-loc" data-loc-idx="${idx}">×</button></td>
+    </tr>`).join('');
+}
+
+function syncSettingsToUI() {
+  const s = state.settings;
+  document.getElementById('s-unit').value = s.geometryUnit;
+  document.getElementById('s-numcores').value = s.numCores;
+  document.getElementById('s-lx').value = s.locationInMesh[0];
+  document.getElementById('s-ly').value = s.locationInMesh[1];
+  document.getElementById('s-lz').value = s.locationInMesh[2];
+  document.querySelectorAll('input[name=loc-mode]').forEach(r => {
+    r.checked = r.value === s.locMode;
+  });
+  updateLocModeUI();
+  document.querySelectorAll('input[name=bgmode]').forEach(r => {
+    r.checked = r.value === s.baseGridMode;
+  });
+  document.getElementById('s-bg-u').value = s.baseGridUniform;
+  document.getElementById('s-bg-dx').value = s.baseGridAniso[0];
+  document.getElementById('s-bg-dy').value = s.baseGridAniso[1];
+  document.getElementById('s-bg-dz').value = s.baseGridAniso[2];
+  document.getElementById('s-pyutils').value = s.pythonUtilsDir;
+  document.getElementById('s-fluidzone').value = s.fluidZoneName;
+  const extraEnabled = !!s.allrunExtraEnabled;
+  document.getElementById('chk-allrun-extra').checked = extraEnabled;
+  document.getElementById('allrun-extra-body').style.display = extraEnabled ? 'block' : 'none';
+  document.getElementById('btn-dl-extra').disabled = !extraEnabled;
+  document.getElementById('btn-dl-extra').title = extraEnabled ? '' : 'Enable Allrun.extra Script Settings above';
+  const tpEnabled = !!s.transformPointsEnabled;
+  document.getElementById('chk-transform-pts').checked = tpEnabled;
+  document.getElementById('transform-pts-body').style.display = tpEnabled ? 'block' : 'none';
+  document.getElementById('s-transform-scale').value = s.transformPointsScale;
+  const chtEnabled = !!s.chtConfig.enabled;
+  document.getElementById('chk-cht-config').checked = chtEnabled;
+  document.getElementById('cht-config-body').style.display = chtEnabled ? 'block' : 'none';
+  updateBaseGridUI();
+  updateUnitBadges();
+  updateTransformScaleHint();
+  if (chtEnabled) renderChtSection();
+}
+
+// ─── Reference Geometry Dropdown ──────────────────────────────────────────────
+function renderRefGeoDropdown() {
+  const sel = document.getElementById('s-refgeo');
+  const cur = state.settings.referenceGeometry;
+  sel.innerHTML = '';
+  const def = document.createElement('option');
+  def.value = '';
+  def.textContent = '-- select --';
+  sel.appendChild(def);
+  state.fileRows.filter(r => r.include).forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.filename;
+    opt.textContent = r.filename;
+    sel.appendChild(opt);
+  });
+  sel.value = cur;
+  if (sel.value !== cur) {
+    state.settings.referenceGeometry = '';
+    sel.value = '';
+  }
+}
+
+// ─── File Table Render ────────────────────────────────────────────────────────
+function renderFileTable() {
+  const tbody = document.getElementById('file-tbody');
+  tbody.innerHTML = '';
+  document.getElementById('file-count').textContent = state.fileRows.length;
+
+  if (state.fileRows.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 13;
+    td.className = 'no-data';
+    td.textContent = 'No geometry files loaded. Use Browse or Load JSON.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  state.fileRows.forEach((row, idx) => {
+    appendFileRow(tbody, row, idx);
+    if (row.multiRegion && row.include) {
+      appendSubRegionRows(tbody, row);
+    }
+  });
+
+  renderRefGeoDropdown();
+  if (state.settings.chtConfig.enabled) renderChtSection();
+}
+
+function appendFileRow(tbody, row, idx) {
+  const disabled = !row.include;
+  const surfNone = row.surfType === 'none';
+  const surfFaceZone = row.surfType === 'faceZone';
+  const surfBoundary = row.surfType === 'boundary';
+  const volNone = row.volDir === 'none';
+  const autoDisabled = disabled || row.multiRegion;
+  const levelDisabled = disabled || surfNone || row.auto;
+  const czDisabled = disabled || !surfFaceZone;
+  const volDirDisabled = disabled;
+  const volLevelDisabled = disabled || volNone || row.auto;
+
+  const tr = document.createElement('tr');
+  tr.dataset.id = row.id;
+
+  // #
+  tr.appendChild(td(String(idx + 1), 'row-num'));
+
+  // Filename
+  const fnTd = document.createElement('td');
+  fnTd.style.textAlign = 'left';
+  fnTd.style.maxWidth = '160px';
+  fnTd.style.wordBreak = 'break-all';
+  const fnSpan = document.createElement('span');
+  fnSpan.title = row.filename;
+  fnSpan.textContent = row.filename;
+  fnTd.appendChild(fnSpan);
+  tr.appendChild(fnTd);
+
+  // Include
+  tr.appendChild(tdCheck('include', row.id, row.include, false));
+
+  // Multi-region
+  const mrTip = disabled ? 'Enable Include first' : '';
+  tr.appendChild(tdCheck('multiRegion', row.id, row.multiRegion, disabled, mrTip));
+
+  // Surface Type
+  const stTd = document.createElement('td');
+  const stSel = document.createElement('select');
+  stSel.disabled = disabled;
+  stSel.dataset.id = row.id;
+  stSel.dataset.field = 'surfType';
+  ['none', 'boundary', 'faceZone'].forEach(v => {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    if (v === row.surfType) o.selected = true;
+    stSel.appendChild(o);
+  });
+  stTd.appendChild(stSel);
+  tr.appendChild(stTd);
+
+  // Cell Zone
+  const czTip = czDisabled && !disabled ? 'Only active when Surface Type = faceZone' : '';
+  tr.appendChild(tdCheck('cellZone', row.id, row.cellZone, czDisabled, czTip));
+
+  // Auto Refine
+  const autoTip = row.multiRegion ? 'Disable multi-region to use Auto Refine' : '';
+  tr.appendChild(tdCheck('auto', row.id, row.auto, autoDisabled, autoTip));
+
+  // Surf Min
+  tr.appendChild(tdNumInput('surfMin', row.id, row.surfMin, 0, 20, levelDisabled));
+
+  // Surf Max
+  tr.appendChild(tdNumInput('surfMax', row.id, row.surfMax, 0, 20, levelDisabled));
+
+  // Vol Dir
+  const vdTd = document.createElement('td');
+  const vdSel = document.createElement('select');
+  vdSel.disabled = volDirDisabled;
+  vdSel.dataset.id = row.id;
+  vdSel.dataset.field = 'volDir';
+  ['none', 'inside', 'outside'].forEach(v => {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    if (v === row.volDir) o.selected = true;
+    vdSel.appendChild(o);
+  });
+  vdTd.appendChild(vdSel);
+  tr.appendChild(vdTd);
+
+  // Vol Level
+  tr.appendChild(tdNumInput('volLevel', row.id, row.volLevel, 0, 20, volLevelDisabled));
+
+  // Not a component
+  tr.appendChild(tdCheck('notAComponent', row.id, row.notAComponent, disabled, 'Flag to exclude from --exclude list in Allrun.extra'));
+
+  // Delete
+  const delTd = document.createElement('td');
+  const delBtn = document.createElement('button');
+  delBtn.className = 'del-btn';
+  delBtn.textContent = '×';
+  delBtn.dataset.id = row.id;
+  delBtn.dataset.action = 'delete-file';
+  delTd.appendChild(delBtn);
+  tr.appendChild(delTd);
+
+  tbody.appendChild(tr);
+}
+
+function appendSubRegionRows(tbody, row) {
+  row.subRegions.forEach((sr, si) => {
+    const tr = document.createElement('tr');
+    tr.className = 'subregion-row';
+    tr.dataset.parentId = row.id;
+    tr.dataset.srId = sr.id;
+
+    // # placeholder (empty)
+    const numTd = document.createElement('td');
+    numTd.colSpan = 1;
+    tr.appendChild(numTd);
+
+    // indent + region name
+    const nameTd = document.createElement('td');
+    nameTd.colSpan = 3;
+    nameTd.style.textAlign = 'left';
+    nameTd.style.paddingLeft = '18px';
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text';
+    nameInp.value = sr.name;
+    nameInp.placeholder = 'e.g. Inflow';
+    nameInp.className = 'name-input';
+    nameInp.dataset.parentId = row.id;
+    nameInp.dataset.srId = sr.id;
+    nameInp.dataset.field = 'name';
+    nameTd.appendChild(nameInp);
+    tr.appendChild(nameTd);
+
+    // empty (Surface Type, Cell Zone, Auto Refine col placeholders)
+    tr.appendChild(document.createElement('td'));
+    tr.appendChild(document.createElement('td'));
+    tr.appendChild(document.createElement('td'));
+
+    // Surf Min
+    const minTd = document.createElement('td');
+    const minInp = document.createElement('input');
+    minInp.type = 'number'; minInp.min = 0; minInp.max = 20;
+    minInp.value = sr.surfMin;
+    minInp.dataset.parentId = row.id;
+    minInp.dataset.srId = sr.id;
+    minInp.dataset.field = 'surfMin';
+    minTd.appendChild(minInp);
+    tr.appendChild(minTd);
+
+    // Surf Max
+    const maxTd = document.createElement('td');
+    const maxInp = document.createElement('input');
+    maxInp.type = 'number'; maxInp.min = 0; maxInp.max = 20;
+    maxInp.value = sr.surfMax;
+    maxInp.dataset.parentId = row.id;
+    maxInp.dataset.srId = sr.id;
+    maxInp.dataset.field = 'surfMax';
+    maxTd.appendChild(maxInp);
+    tr.appendChild(maxTd);
+
+    // empty cols for VolDir, VolLevel, Not a component
+    tr.appendChild(document.createElement('td'));
+    tr.appendChild(document.createElement('td'));
+    tr.appendChild(document.createElement('td'));
+
+    // delete region
+    const delTd = document.createElement('td');
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del-btn';
+    delBtn.textContent = '×';
+    delBtn.dataset.parentId = row.id;
+    delBtn.dataset.srId = sr.id;
+    delBtn.dataset.action = 'delete-subregion';
+    delTd.appendChild(delBtn);
+    tr.appendChild(delTd);
+
+    tbody.appendChild(tr);
+  });
+
+  // Add region row
+  const addTr = document.createElement('tr');
+  addTr.className = 'addregion-row';
+  const addTd = document.createElement('td');
+  addTd.colSpan = 13;
+  addTd.style.textAlign = 'left';
+  addTd.style.paddingLeft = '22px';
+  const addBtn = document.createElement('button');
+  addBtn.className = 'add-region-link';
+  addBtn.textContent = '+ Add Region';
+  addBtn.dataset.parentId = row.id;
+  addBtn.dataset.action = 'add-subregion';
+  addTd.appendChild(addBtn);
+  addTr.appendChild(addTd);
+  tbody.appendChild(addTr);
+}
+
+function td(text, cls) {
+  const el = document.createElement('td');
+  if (cls) el.className = cls;
+  el.textContent = text;
+  return el;
+}
+
+function tdCheck(field, rowId, checked, disabled, title) {
+  const tdEl = document.createElement('td');
+  const inp = document.createElement('input');
+  inp.type = 'checkbox';
+  inp.checked = checked;
+  inp.disabled = !!disabled;
+  inp.dataset.id = rowId;
+  inp.dataset.field = field;
+  if (title) inp.title = title;
+  tdEl.appendChild(inp);
+  return tdEl;
+}
+
+function tdNumInput(field, rowId, val, min, max, disabled) {
+  const tdEl = document.createElement('td');
+  const inp = document.createElement('input');
+  inp.type = 'number';
+  inp.min = min; inp.max = max;
+  inp.value = val;
+  inp.style.width = '56px';
+  inp.disabled = !!disabled;
+  inp.dataset.id = rowId;
+  inp.dataset.field = field;
+  tdEl.appendChild(inp);
+  return tdEl;
+}
+
+// ─── Shape Table Render ───────────────────────────────────────────────────────
+function renderShapeTable() {
+  const tbody = document.getElementById('shape-tbody');
+  tbody.innerHTML = '';
+  document.getElementById('shape-count').textContent = state.shapeRows.length;
+
+  if (state.shapeRows.length === 0) {
+    const tr = document.createElement('tr');
+    const tdEl = document.createElement('td');
+    tdEl.colSpan = 11;
+    tdEl.className = 'no-data';
+    tdEl.textContent = 'No standard shapes added.';
+    tr.appendChild(tdEl);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  state.shapeRows.forEach((row, idx) => {
+    const surfNone = row.surfType === 'none';
+    const surfFaceZone = row.surfType === 'faceZone';
+    const volNone = row.volDir === 'none';
+    const tr = document.createElement('tr');
+    tr.dataset.id = row.id;
+
+    // #
+    tr.appendChild(td(String(idx + 1), 'row-num'));
+
+    // Name
+    const nameTd = document.createElement('td');
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text';
+    nameInp.value = row.name;
+    nameInp.className = 'name-input';
+    nameInp.dataset.id = row.id;
+    nameInp.dataset.field = 'name';
+    nameTd.appendChild(nameInp);
+    tr.appendChild(nameTd);
+
+    // Shape Type
+    const stTd = document.createElement('td');
+    const stSel = document.createElement('select');
+    stSel.dataset.id = row.id;
+    stSel.dataset.field = 'shapeType';
+    ['searchableSphere', 'searchableCylinder', 'searchableBox',
+     'searchableCone', 'searchableRotatedBox', 'searchableDisk',
+     'searchablePlate', 'searchablePlane', 'searchableSurfaceWithGaps'].forEach(v => {
+      const o = document.createElement('option');
+      o.value = v;
+      o.textContent = v.replace('searchable', '');
+      if (v === row.shapeType) o.selected = true;
+      stSel.appendChild(o);
+    });
+    stTd.appendChild(stSel);
+    tr.appendChild(stTd);
+
+    // Shape Parameters (type-specific)
+    const paramTd = document.createElement('td');
+    paramTd.style.textAlign = 'left';
+    paramTd.style.minWidth = '220px';
+    paramTd.appendChild(buildShapeParams(row));
+    tr.appendChild(paramTd);
+
+    // Surface Type
+    const surfTd = document.createElement('td');
+    const surfSel = document.createElement('select');
+    surfSel.dataset.id = row.id;
+    surfSel.dataset.field = 'surfType';
+    ['none', 'boundary', 'faceZone'].forEach(v => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      if (v === row.surfType) o.selected = true;
+      surfSel.appendChild(o);
+    });
+    surfTd.appendChild(surfSel);
+    tr.appendChild(surfTd);
+
+    // Cell Zone
+    const czDisabled = !surfFaceZone;
+    const czTip = czDisabled ? 'Only active when Surface Type = faceZone' : '';
+    tr.appendChild(tdCheck('cellZone', row.id, row.cellZone, czDisabled, czTip));
+
+    // Surf Min
+    tr.appendChild(tdNumInput('surfMin', row.id, row.surfMin, 0, 20, surfNone));
+
+    // Surf Max
+    tr.appendChild(tdNumInput('surfMax', row.id, row.surfMax, 0, 20, surfNone));
+
+    // Vol Dir
+    const vdTd = document.createElement('td');
+    const vdSel = document.createElement('select');
+    vdSel.dataset.id = row.id;
+    vdSel.dataset.field = 'volDir';
+    ['none', 'inside', 'outside'].forEach(v => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      if (v === row.volDir) o.selected = true;
+      vdSel.appendChild(o);
+    });
+    vdTd.appendChild(vdSel);
+    tr.appendChild(vdTd);
+
+    // Vol Level
+    tr.appendChild(tdNumInput('volLevel', row.id, row.volLevel, 0, 20, volNone));
+
+    // Delete
+    const delTd = document.createElement('td');
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del-btn';
+    delBtn.textContent = '×';
+    delBtn.dataset.id = row.id;
+    delBtn.dataset.action = 'delete-shape';
+    delTd.appendChild(delBtn);
+    tr.appendChild(delTd);
+
+    tbody.appendChild(tr);
+  });
+  if (state.settings.chtConfig.enabled) renderChtSection();
+}
+
+function buildShapeParams(row) {
+  const wrap = document.createElement('div');
+  wrap.style.display = 'flex';
+  wrap.style.flexWrap = 'wrap';
+  wrap.style.gap = '4px';
+  wrap.style.alignItems = 'center';
+
+  if (row.shapeType === 'searchableSphere') {
+    wrap.appendChild(paramLabel('centre'));
+    wrap.appendChild(xyzInput(row.id, 'centre', row.centre));
+    wrap.appendChild(paramLabel('r'));
+    wrap.appendChild(singleNumInput(row.id, 'radius', row.radius, 62));
+  } else if (row.shapeType === 'searchableCylinder') {
+    wrap.appendChild(paramLabel('p1'));
+    wrap.appendChild(xyzInput(row.id, 'point1', row.point1));
+    wrap.appendChild(paramLabel('p2'));
+    wrap.appendChild(xyzInput(row.id, 'point2', row.point2));
+    wrap.appendChild(paramLabel('r'));
+    wrap.appendChild(singleNumInput(row.id, 'radius', row.radius, 62));
+  } else if (row.shapeType === 'searchableBox') {
+    wrap.appendChild(paramLabel('min'));
+    wrap.appendChild(xyzInput(row.id, 'min', row.min));
+    wrap.appendChild(paramLabel('max'));
+    wrap.appendChild(xyzInput(row.id, 'max', row.max));
+  } else if (row.shapeType === 'searchableCone') {
+    wrap.appendChild(paramLabel('p1'));
+    wrap.appendChild(xyzInput(row.id, 'point1', row.point1));
+    wrap.appendChild(paramLabel('r1'));
+    wrap.appendChild(singleNumInput(row.id, 'radius1', row.radius1, 56));
+    wrap.appendChild(paramLabel('p2'));
+    wrap.appendChild(xyzInput(row.id, 'point2', row.point2));
+    wrap.appendChild(paramLabel('r2'));
+    wrap.appendChild(singleNumInput(row.id, 'radius2', row.radius2, 56));
+  } else if (row.shapeType === 'searchableRotatedBox') {
+    wrap.appendChild(paramLabel('origin'));
+    wrap.appendChild(xyzInput(row.id, 'origin', row.origin));
+    wrap.appendChild(paramLabel('span'));
+    wrap.appendChild(xyzInput(row.id, 'span', row.span));
+    wrap.appendChild(paramLabel('e1'));
+    wrap.appendChild(xyzInput(row.id, 'e1', row.e1));
+    wrap.appendChild(paramLabel('e3'));
+    wrap.appendChild(xyzInput(row.id, 'e3', row.e3));
+  } else if (row.shapeType === 'searchableDisk') {
+    wrap.appendChild(paramLabel('origin'));
+    wrap.appendChild(xyzInput(row.id, 'origin', row.origin));
+    wrap.appendChild(paramLabel('normal'));
+    wrap.appendChild(xyzInput(row.id, 'normal', row.normal));
+    wrap.appendChild(paramLabel('r'));
+    wrap.appendChild(singleNumInput(row.id, 'radius', row.radius, 62));
+  } else if (row.shapeType === 'searchablePlate') {
+    wrap.appendChild(paramLabel('origin'));
+    wrap.appendChild(xyzInput(row.id, 'origin', row.origin));
+    wrap.appendChild(paramLabel('span'));
+    wrap.appendChild(xyzInput(row.id, 'span', row.span));
+  } else if (row.shapeType === 'searchablePlane') {
+    const ptSel = document.createElement('select');
+    ptSel.style.fontSize = '11px';
+    ptSel.dataset.id = row.id;
+    ptSel.dataset.field = 'planeType';
+    ['pointAndNormal', 'embeddedPoints', 'planeEquation'].forEach(v => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      if (v === row.planeType) o.selected = true;
+      ptSel.appendChild(o);
+    });
+    wrap.appendChild(ptSel);
+    if (row.planeType === 'pointAndNormal') {
+      wrap.appendChild(paramLabel('base'));
+      wrap.appendChild(xyzInput(row.id, 'basePoint', row.basePoint));
+      wrap.appendChild(paramLabel('normal'));
+      wrap.appendChild(xyzInput(row.id, 'normal', row.normal));
+    } else if (row.planeType === 'embeddedPoints') {
+      wrap.appendChild(paramLabel('p1'));
+      wrap.appendChild(xyzInput(row.id, 'point1', row.point1));
+      wrap.appendChild(paramLabel('p2'));
+      wrap.appendChild(xyzInput(row.id, 'point2', row.point2));
+      wrap.appendChild(paramLabel('p3'));
+      wrap.appendChild(xyzInput(row.id, 'point3', row.point3));
+    } else if (row.planeType === 'planeEquation') {
+      ['planeA', 'planeB', 'planeC', 'planeD'].forEach((f, i) => {
+        wrap.appendChild(paramLabel('abcd'[i]));
+        wrap.appendChild(singleNumInput(row.id, f, row[f], 48));
+      });
+    }
+  } else if (row.shapeType === 'searchableSurfaceWithGaps') {
+    wrap.appendChild(paramLabel('surface'));
+    const sInp = document.createElement('input');
+    sInp.type = 'text'; sInp.value = row.surface;
+    sInp.placeholder = 'e.g. domain.stl';
+    sInp.style.width = '110px'; sInp.style.fontSize = '11px';
+    sInp.dataset.id = row.id; sInp.dataset.field = 'surface';
+    wrap.appendChild(sInp);
+    wrap.appendChild(paramLabel('gap'));
+    wrap.appendChild(singleNumInput(row.id, 'gap', row.gap, 56));
+  }
+  return wrap;
+}
+
+function paramLabel(text) {
+  const s = document.createElement('span');
+  s.className = 'lbl';
+  s.textContent = text + ':';
+  return s;
+}
+
+function xyzInput(rowId, field, vals) {
+  const wrap = document.createElement('span');
+  wrap.style.display = 'inline-flex';
+  wrap.style.gap = '2px';
+  ['0', '1', '2'].forEach((i) => {
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.value = vals[parseInt(i)];
+    inp.style.width = '50px';
+    inp.dataset.id = rowId;
+    inp.dataset.field = field + '_' + i;
+    wrap.appendChild(inp);
+  });
+  return wrap;
+}
+
+function singleNumInput(rowId, field, val, width) {
+  const inp = document.createElement('input');
+  inp.type = 'number';
+  inp.value = val;
+  inp.style.width = (width || 62) + 'px';
+  inp.dataset.id = rowId;
+  inp.dataset.field = field;
+  return inp;
+}
+
+// ─── Event Delegation ─────────────────────────────────────────────────────────
+function bindTableEvents() {
+  document.getElementById('file-tbody').addEventListener('change', onFileTableChange);
+  document.getElementById('file-tbody').addEventListener('click', onFileTableClick);
+  document.getElementById('shape-tbody').addEventListener('change', onShapeTableChange);
+  document.getElementById('shape-tbody').addEventListener('click', onShapeTableClick);
+}
+
+function findFileRow(id) {
+  return state.fileRows.find(r => r.id === id);
+}
+function findShapeRow(id) {
+  return state.shapeRows.find(r => r.id === id);
+}
+
+function onFileTableChange(e) {
+  const el = e.target;
+  const id = parseInt(el.dataset.id, 10);
+  const field = el.dataset.field;
+  const row = findFileRow(id);
+  if (!row) return;
+
+  if (el.type === 'checkbox') {
+    if (field === 'include') {
+      row.include = el.checked;
+      renderFileTable();
+      renderRefGeoDropdown();
+      return;
+    }
+    if (field === 'multiRegion') {
+      row.multiRegion = el.checked;
+      if (el.checked) row.auto = false;
+      renderFileTable();
+      return;
+    }
+    if (field === 'auto') {
+      row.auto = el.checked;
+      if (el.checked) { row.surfMin = 0; row.surfMax = 0; row.volLevel = 0; }
+      renderFileTable();
+      return;
+    }
+    if (field === 'cellZone') {
+      row.cellZone = el.checked;
+      return;
+    }
+    if (field === 'notAComponent') {
+      row.notAComponent = el.checked;
+      return;
+    }
+  } else if (el.tagName === 'SELECT') {
+    if (field === 'surfType') {
+      row.surfType = el.value;
+      if (el.value === 'none') { row.cellZone = false; row.auto = false; }
+      if (el.value !== 'faceZone') row.cellZone = false;
+      renderFileTable();
+      return;
+    }
+    if (field === 'volDir') {
+      row.volDir = el.value;
+      renderFileTable();
+      return;
+    }
+  } else if (el.type === 'number') {
+    if (field === 'surfMin') row.surfMin = parseInt2(el.value);
+    else if (field === 'surfMax') row.surfMax = parseInt2(el.value);
+    else if (field === 'volLevel') row.volLevel = parseInt2(el.value);
+  }
+}
+
+function onFileTableClick(e) {
+  const el = e.target;
+  const action = el.dataset.action;
+  if (!action) return;
+
+  if (action === 'delete-file') {
+    const id = parseInt(el.dataset.id, 10);
+    state.fileRows = state.fileRows.filter(r => r.id !== id);
+    renderFileTable();
+    return;
+  }
+  if (action === 'delete-subregion') {
+    const parentId = parseInt(el.dataset.parentId, 10);
+    const srId = parseInt(el.dataset.srId, 10);
+    const row = findFileRow(parentId);
+    if (row) row.subRegions = row.subRegions.filter(s => s.id !== srId);
+    renderFileTable();
+    return;
+  }
+  if (action === 'add-subregion') {
+    const parentId = parseInt(el.dataset.parentId, 10);
+    const row = findFileRow(parentId);
+    if (row) row.subRegions.push(makeSubRegion());
+    renderFileTable();
+    return;
+  }
+}
+
+// Sub-region text/number inputs use input event not change
+document.getElementById('file-tbody') && document.getElementById('file-tbody').addEventListener('input', function(e) {
+  const el = e.target;
+  const parentId = el.dataset.parentId ? parseInt(el.dataset.parentId, 10) : null;
+  const srId = el.dataset.srId ? parseInt(el.dataset.srId, 10) : null;
+  if (parentId && srId) {
+    const row = findFileRow(parentId);
+    if (!row) return;
+    const sr = row.subRegions.find(s => s.id === srId);
+    if (!sr) return;
+    const field = el.dataset.field;
+    if (field === 'name') sr.name = el.value;
+    else if (field === 'surfMin') sr.surfMin = parseInt2(el.value);
+    else if (field === 'surfMax') sr.surfMax = parseInt2(el.value);
+  }
+});
+
+function onShapeTableChange(e) {
+  const el = e.target;
+  const id = parseInt(el.dataset.id, 10);
+  const field = el.dataset.field;
+  if (!id || !field) return;
+  const row = findShapeRow(id);
+  if (!row) return;
+
+  if (el.tagName === 'SELECT') {
+    if (field === 'shapeType') {
+      row.shapeType = el.value;
+      renderShapeTable();
+      return;
+    }
+    if (field === 'planeType') {
+      row.planeType = el.value;
+      renderShapeTable();
+      return;
+    }
+    if (field === 'surfType') {
+      row.surfType = el.value;
+      if (el.value !== 'faceZone') row.cellZone = false;
+      renderShapeTable();
+      return;
+    }
+    if (field === 'volDir') {
+      row.volDir = el.value;
+      renderShapeTable();
+      return;
+    }
+  } else if (el.type === 'checkbox') {
+    if (field === 'cellZone') row.cellZone = el.checked;
+  } else if (el.type === 'number') {
+    if (field === 'surfMin') row.surfMin = parseInt2(el.value);
+    else if (field === 'surfMax') row.surfMax = parseInt2(el.value);
+    else if (field === 'volLevel') row.volLevel = parseInt2(el.value);
+    else if (['radius','radius1','radius2','gap','planeA','planeB','planeC','planeD'].includes(field))
+      row[field] = parseNum(el.value);
+    // xyz fields
+    else if (field.endsWith('_0') || field.endsWith('_1') || field.endsWith('_2')) {
+      const idx = parseInt(field.slice(-1), 10);
+      const fname = field.slice(0, -2);
+      if (Array.isArray(row[fname])) row[fname][idx] = parseNum(el.value);
+    }
+  } else if (el.type === 'text') {
+    if (field === 'name') row.name = el.value;
+    else if (field === 'surface') row.surface = el.value;
+  }
+}
+
+function onShapeTableClick(e) {
+  const el = e.target;
+  const action = el.dataset.action;
+  if (action === 'delete-shape') {
+    const id = parseInt(el.dataset.id, 10);
+    state.shapeRows = state.shapeRows.filter(r => r.id !== id);
+    renderShapeTable();
+  }
+}
+
+// ─── CHT / Multi-region Configuration ────────────────────────────────────────
+function makeChtRegion() {
+  return { id: uid(), name: '', zones: [] };
+}
+
+function buildZonePool() {
+  const pool = [];
+  state.fileRows.forEach(r => {
+    if (!r.include) return;
+    if (r.multiRegion && r.subRegions.length > 0) {
+      if (r.surfType === 'faceZone') {
+        r.subRegions.forEach(sr => { if (sr.name && !pool.includes(sr.name)) pool.push(sr.name); });
+      }
+    } else if (r.surfType === 'faceZone' && r.cellZone) {
+      const s = stemName(r.filename);
+      if (!pool.includes(s)) pool.push(s);
+    }
+  });
+  state.shapeRows.forEach(r => {
+    if (r.surfType === 'faceZone' && r.cellZone && !pool.includes(r.name)) pool.push(r.name);
+  });
+  const fluid = state.settings.fluidZoneName || 'domain_fluid';
+  if (!pool.includes(fluid)) pool.unshift(fluid);
+  return pool;
+}
+
+function getAllAssignedZones() {
+  const assigned = new Set();
+  state.settings.chtConfig.regions.forEach(r => r.zones.forEach(z => assigned.add(z)));
+  return assigned;
+}
+
+function getUnassignedZones() {
+  const assigned = getAllAssignedZones();
+  return buildZonePool().filter(z => !assigned.has(z));
+}
+
+function updateDownloadButtonState() {
+  const extraEnabled = state.settings.allrunExtraEnabled;
+  const cfg = state.settings.chtConfig;
+  const unassigned = (cfg.enabled && cfg.regions.length >= 2) ? getUnassignedZones() : [];
+  const canDownload = extraEnabled && unassigned.length === 0;
+  const btn = document.getElementById('btn-dl-extra');
+  if (!btn) return;
+  btn.disabled = !canDownload;
+  if (!extraEnabled) {
+    btn.title = 'Enable Allrun.extra Script Settings above';
+  } else if (unassigned.length > 0) {
+    btn.title = `CHT: ${unassigned.length} zone(s) must be assigned before downloading`;
+  } else {
+    btn.title = '';
+  }
+}
+
+function renderChtSection() {
+  if (!state.settings.chtConfig.enabled) return;
+  renderChtRegions();
+  updateChtStatusBar();
+  updateDownloadButtonState();
+}
+
+function renderChtRegions() {
+  const cfg = state.settings.chtConfig;
+  const wrap = document.getElementById('cht-regions-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+
+  if (cfg.regions.length === 0) {
+    wrap.innerHTML = '<div style="color:#888;font-style:italic;font-size:0.82rem;padding:8px 0;">No regions defined. Add at least 2 to enable splitMeshRegions.</div>';
+    return;
+  }
+
+  cfg.regions.forEach((region, idx) => {
+    const block = document.createElement('div');
+    block.className = 'cht-region-block';
+    block.dataset.regionId = region.id;
+
+    // ── Header row ──
+    const header = document.createElement('div');
+    header.className = 'cht-region-header';
+
+    const numSpan = document.createElement('span');
+    numSpan.className = 'row-num';
+    numSpan.textContent = idx + 1;
+    numSpan.style.paddingTop = '5px';
+    header.appendChild(numSpan);
+
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text';
+    nameInp.value = region.name;
+    nameInp.placeholder = 'e.g. domain_fluid';
+    nameInp.style.width = '140px';
+    nameInp.dataset.regionId = region.id;
+    nameInp.dataset.action = 'region-name';
+    header.appendChild(nameInp);
+
+    const chipArea = document.createElement('div');
+    chipArea.className = 'cht-zone-chip-area';
+    if (region.zones.length === 0) {
+      const none = document.createElement('span');
+      none.style.cssText = 'font-size:11px;color:#aaa;font-style:italic;';
+      none.textContent = '(none)';
+      chipArea.appendChild(none);
+    } else {
+      const shown = region.zones.slice(0, 4);
+      const extra = region.zones.length - shown.length;
+      shown.forEach(z => chipArea.appendChild(makeZoneChip(z, region.id)));
+      if (extra > 0) {
+        const more = document.createElement('span');
+        more.style.cssText = 'font-size:11px;color:#666;font-style:italic;margin-left:3px;';
+        more.textContent = `+${extra} more`;
+        chipArea.appendChild(more);
+      }
+    }
+
+    const isOpen = cfg.openPanelId === region.id;
+    const assignBtn = document.createElement('button');
+    assignBtn.className = 'btn btn-secondary btn-sm';
+    assignBtn.style.marginLeft = '4px';
+    assignBtn.dataset.regionId = region.id;
+    assignBtn.dataset.action = 'toggle-assign-panel';
+    assignBtn.textContent = isOpen ? '▲ Assign' : '▼ Assign';
+    chipArea.appendChild(assignBtn);
+    header.appendChild(chipArea);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del-btn';
+    delBtn.dataset.regionId = region.id;
+    delBtn.dataset.action = 'delete-region';
+    delBtn.textContent = '×';
+    delBtn.style.cssText = 'align-self:flex-start;margin-top:2px;';
+    header.appendChild(delBtn);
+    block.appendChild(header);
+
+    // ── Assignment panel (accordion) ──
+    if (isOpen) {
+      const panel = document.createElement('div');
+      panel.className = 'cht-assign-panel';
+
+      const title = document.createElement('div');
+      title.style.cssText = 'font-size:0.78rem;font-weight:700;color:#1a2533;margin-bottom:8px;';
+      title.textContent = `Assign zones → ${region.name || '(unnamed)'}`;
+      panel.appendChild(title);
+
+      const grid = document.createElement('div');
+      grid.className = 'cht-assign-grid';
+
+      const pool = buildZonePool();
+      const assigned = getAllAssignedZones();
+      let count = 0;
+      pool.forEach(z => {
+        if (assigned.has(z) && !region.zones.includes(z)) return; // taken by another region
+        const lbl = document.createElement('label');
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = region.zones.includes(z);
+        chk.dataset.regionId = region.id;
+        chk.dataset.zone = z;
+        chk.dataset.action = 'assign-zone';
+        lbl.appendChild(chk);
+        lbl.appendChild(document.createTextNode(' ' + z));
+        grid.appendChild(lbl);
+        count++;
+      });
+
+      if (count === 0) {
+        grid.innerHTML = '<span style="color:#aaa;font-size:11px;font-style:italic;">No zones available — all assigned to other regions.</span>';
+      }
+
+      panel.appendChild(grid);
+      block.appendChild(panel);
+    }
+
+    wrap.appendChild(block);
+  });
+}
+
+function makeZoneChip(zoneName, regionId) {
+  const chip = document.createElement('span');
+  chip.className = 'zone-chip';
+  chip.textContent = zoneName;
+  const del = document.createElement('button');
+  del.className = 'zone-chip-del';
+  del.textContent = '×';
+  del.title = 'Remove from region';
+  del.dataset.regionId = regionId;
+  del.dataset.zone = zoneName;
+  del.dataset.action = 'remove-zone';
+  chip.appendChild(del);
+  return chip;
+}
+
+function updateChtStatusBar() {
+  const cfg = state.settings.chtConfig;
+  const bar = document.getElementById('cht-status-bar');
+  const unassignedWrap = document.getElementById('cht-unassigned-wrap');
+  if (!bar) return;
+
+  const pool = buildZonePool();
+  const unassigned = getUnassignedZones();
+
+  if (cfg.regions.length === 0) {
+    bar.innerHTML = '';
+    unassignedWrap.innerHTML = '';
+    return;
+  }
+  if (cfg.regions.length === 1) {
+    bar.innerHTML = '<span class="cht-status-info">ℹ Only 1 region — splitMeshRegions block will be skipped (single-region simulation).</span>';
+    unassignedWrap.innerHTML = '';
+    return;
+  }
+  if (unassigned.length > 0) {
+    bar.innerHTML = `<span class="cht-status-warn">⚠ ${unassigned.length} unassigned zone(s) — all zones must be assigned to a region before download.</span>`;
+    let html = `<div style="font-size:0.78rem;font-weight:600;color:#aa0000;margin-bottom:4px;">Unassigned Zones ⚠ ${unassigned.length}</div>`;
+    html += unassigned.map(z => `<span class="unassigned-chip">${escHtml(z)}</span>`).join('');
+    unassignedWrap.innerHTML = html;
+  } else {
+    bar.innerHTML = `<span class="cht-status-ok">✓ All ${pool.length} zone(s) assigned across ${cfg.regions.length} regions.</span>`;
+    unassignedWrap.innerHTML = '';
+  }
+}
+
+function bindChtSection() {
+  document.getElementById('chk-cht-config').addEventListener('change', e => {
+    state.settings.chtConfig.enabled = e.target.checked;
+    document.getElementById('cht-config-body').style.display = e.target.checked ? 'block' : 'none';
+    renderChtSection();
+    updateDownloadButtonState();
+  });
+
+  document.getElementById('btn-add-region').addEventListener('click', () => {
+    state.settings.chtConfig.regions.push(makeChtRegion());
+    renderChtSection();
+  });
+
+  document.getElementById('cht-regions-wrap').addEventListener('click', e => {
+    const el = e.target;
+    const action = el.dataset.action;
+    if (!action) return;
+
+    const regionId = parseInt(el.dataset.regionId, 10);
+    const cfg = state.settings.chtConfig;
+
+    if (action === 'toggle-assign-panel') {
+      cfg.openPanelId = (cfg.openPanelId === regionId) ? null : regionId;
+      renderChtRegions();
+      return;
+    }
+    if (action === 'delete-region') {
+      cfg.regions = cfg.regions.filter(r => r.id !== regionId);
+      if (cfg.openPanelId === regionId) cfg.openPanelId = null;
+      renderChtSection();
+      return;
+    }
+    if (action === 'remove-zone') {
+      const zone = el.dataset.zone;
+      const region = cfg.regions.find(r => r.id === regionId);
+      if (region) region.zones = region.zones.filter(z => z !== zone);
+      renderChtRegions();
+      updateChtStatusBar();
+      updateDownloadButtonState();
+      return;
+    }
+  });
+
+  document.getElementById('cht-regions-wrap').addEventListener('change', e => {
+    const el = e.target;
+    if (el.dataset.action !== 'assign-zone') return;
+    const regionId = parseInt(el.dataset.regionId, 10);
+    const zone = el.dataset.zone;
+    const region = state.settings.chtConfig.regions.find(r => r.id === regionId);
+    if (!region) return;
+    if (el.checked) {
+      if (!region.zones.includes(zone)) region.zones.push(zone);
+    } else {
+      region.zones = region.zones.filter(z => z !== zone);
+    }
+    renderChtRegions();
+    updateChtStatusBar();
+    updateDownloadButtonState();
+  });
+
+  document.getElementById('cht-regions-wrap').addEventListener('input', e => {
+    const el = e.target;
+    if (el.dataset.action !== 'region-name') return;
+    const regionId = parseInt(el.dataset.regionId, 10);
+    const region = state.settings.chtConfig.regions.find(r => r.id === regionId);
+    if (region) {
+      region.name = el.value;
+      updateChtStatusBar();
+    }
+  });
+}
+
+// ─── Toolbar buttons ──────────────────────────────────────────────────────────
+function bindToolbar() {
+  document.getElementById('btn-browse').addEventListener('click', () => {
+    document.getElementById('inp-folder').click();
+  });
+  document.getElementById('inp-folder').addEventListener('change', e => {
+    const files = Array.from(e.target.files);
+    const valid = files.filter(f => /\.(stl|obj|stlb)$/i.test(f.name));
+    if (!valid.length) { e.target.value = ''; return; }
+
+    // If rows already exist, ask whether to replace or append
+    if (state.fileRows.length > 0) {
+      const replace = confirm(
+        `The table already has ${state.fileRows.length} file(s).\n\nOK = Replace all rows with new folder\nCancel = Append new files only`
+      );
+      if (replace) {
+        state.fileRows = [];
+        state.shapeRows = [];
+      }
+    }
+
+    const existing = new Set(state.fileRows.map(r => r.filename));
+    const newFiles = valid.filter(f => !existing.has(f.name));
+    if (!newFiles.length) { e.target.value = ''; return; }
+
+    let pending = newFiles.length;
+    const done = () => { if (--pending === 0) { renderFileTable(); renderRefGeoDropdown(); e.target.value = ''; } };
+
+    newFiles.forEach(f => {
+      const row = makeFileRow(f.name);
+      state.fileRows.push(row);
+
+      if (/\.stl$/i.test(f.name)) {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const solids = parseSolidNames(ev.target.result);
+          if (solids.length > 0) {
+            row.multiRegion = true;
+            row.auto = false;   // auto is disabled when multiRegion is on
+            row.subRegions = solids.map(name => {
+              const sr = makeSubRegion();
+              sr.name = name;
+              return sr;
+            });
+          }
+          done();
+        };
+        reader.onerror = done;
+        reader.readAsText(f);
+      } else {
+        done();
+      }
+    });
+  });
+
+  document.getElementById('btn-load').addEventListener('click', () => {
+    document.getElementById('inp-json').click();
+  });
+  document.getElementById('inp-json').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const json = JSON.parse(ev.target.result);
+        loadFromJSON(json);
+      } catch (err) {
+        alert('Failed to parse JSON: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  document.getElementById('btn-download').addEventListener('click', downloadJSON);
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    state.fileRows = [];
+    state.shapeRows = [];
+    renderFileTable();
+    renderShapeTable();
+  });
+
+  document.getElementById('btn-add-shape').addEventListener('click', () => {
+    state.shapeRows.push(makeShapeRow());
+    renderShapeTable();
+  });
+
+  // Allrun.extra toggle checkbox
+  document.getElementById('chk-allrun-extra').addEventListener('change', e => {
+    const enabled = e.target.checked;
+    document.getElementById('allrun-extra-body').style.display = enabled ? 'block' : 'none';
+    state.settings.allrunExtraEnabled = enabled;
+    updateDownloadButtonState();
+  });
+
+  // Download script buttons
+  document.getElementById('btn-dl-snappy').addEventListener('click', downloadAllrunSnappy);
+  document.getElementById('btn-dl-extra').addEventListener('click', downloadAllrunExtra);
+  document.getElementById('btn-dl-allclean').addEventListener('click', downloadAllclean);
+}
+
+// ─── JSON Generation ──────────────────────────────────────────────────────────
+function buildJSON() {
+  const s = state.settings;
+  const out = {
+    _version: '1.1',
+    settings: {
+      geometryUnit: s.geometryUnit,
+      numCores: s.numCores,
+    },
+  };
+
+  // backgroundMesh
+  if (s.referenceGeometry) {
+    const bg = { referenceGeometry: s.referenceGeometry };
+    if (s.baseGridMode === 'uniform') {
+      bg.baseGrid = s.baseGridUniform;
+    } else {
+      bg.baseGrid = s.baseGridAniso.slice();
+    }
+    out.backgroundMesh = bg;
+  }
+
+  // geometry
+  const includeFiles = state.fileRows.filter(r => r.include);
+  const geo = {
+    files: includeFiles.map(r => r.filename),
+  };
+  if (state.shapeRows.length > 0) {
+    geo.standardShapes = state.shapeRows.map(r => {
+      const sh = { name: r.name, type: r.shapeType };
+      if (r.shapeType === 'searchableSphere') {
+        sh.centre = r.centre.slice(); sh.radius = r.radius;
+      } else if (r.shapeType === 'searchableCylinder') {
+        sh.point1 = r.point1.slice(); sh.point2 = r.point2.slice(); sh.radius = r.radius;
+      } else if (r.shapeType === 'searchableBox') {
+        sh.min = r.min.slice(); sh.max = r.max.slice();
+      } else if (r.shapeType === 'searchableCone') {
+        sh.point1 = r.point1.slice(); sh.radius1 = r.radius1;
+        sh.point2 = r.point2.slice(); sh.radius2 = r.radius2;
+      } else if (r.shapeType === 'searchableRotatedBox') {
+        sh.origin = r.origin.slice(); sh.span = r.span.slice();
+        sh.e1 = r.e1.slice(); sh.e3 = r.e3.slice();
+      } else if (r.shapeType === 'searchableDisk') {
+        sh.origin = r.origin.slice(); sh.normal = r.normal.slice(); sh.radius = r.radius;
+      } else if (r.shapeType === 'searchablePlate') {
+        sh.origin = r.origin.slice(); sh.span = r.span.slice();
+      } else if (r.shapeType === 'searchablePlane') {
+        sh.planeType = r.planeType;
+        if (r.planeType === 'pointAndNormal') {
+          sh.basePoint = r.basePoint.slice(); sh.normal = r.normal.slice();
+        } else if (r.planeType === 'embeddedPoints') {
+          sh.point1 = r.point1.slice(); sh.point2 = r.point2.slice(); sh.point3 = r.point3.slice();
+        } else if (r.planeType === 'planeEquation') {
+          sh.a = r.planeA; sh.b = r.planeB; sh.c = r.planeC; sh.d = r.planeD;
+        }
+      } else if (r.shapeType === 'searchableSurfaceWithGaps') {
+        sh.surface = r.surface; sh.gap = r.gap;
+      }
+      return sh;
+    });
+  }
+  out.geometry = geo;
+
+  // surfaceHandling
+  const surfSelected = [];
+  includeFiles.forEach(r => { if (r.surfType !== 'none') surfSelected.push(stemName(r.filename)); });
+  state.shapeRows.forEach(r => { if (r.surfType !== 'none') surfSelected.push(r.name); });
+
+  const surfSurfaces = {
+    __defaults__: { type: 'boundary', refinementLevels: [0, 0] },
+  };
+
+  includeFiles.forEach(r => {
+    if (r.surfType === 'none') return;
+    const key = stemName(r.filename);
+    const entry = { type: r.surfType };
+    if (r.cellZone && r.surfType === 'faceZone') entry.cellZoneInside = 'inside';
+    if (r.auto) {
+      entry.autoRefine = true;
+    } else {
+      entry.refinementLevels = [r.surfMin, r.surfMax];
+    }
+    if (r.multiRegion && r.subRegions.length > 0) {
+      entry.regions = {};
+      r.subRegions.forEach(sr => {
+        if (sr.name) entry.regions[sr.name] = { refinementLevels: [sr.surfMin, sr.surfMax] };
+      });
+    }
+    surfSurfaces[key] = entry;
+  });
+
+  state.shapeRows.forEach(r => {
+    if (r.surfType === 'none') return;
+    const entry = { type: r.surfType };
+    if (r.cellZone && r.surfType === 'faceZone') entry.cellZoneInside = 'inside';
+    entry.refinementLevels = [r.surfMin, r.surfMax];
+    surfSurfaces[r.name] = entry;
+  });
+
+  out.surfaceHandling = {
+    selectedParts: surfSelected,
+    surfaces: surfSurfaces,
+  };
+
+  // volumeRefinement
+  const volSelected = [];
+  includeFiles.forEach(r => { if (r.volDir !== 'none') volSelected.push(stemName(r.filename)); });
+  state.shapeRows.forEach(r => { if (r.volDir !== 'none') volSelected.push(r.name); });
+
+  const volRegions = {
+    __defaults__: { mode: 'inside', level: 0 },
+  };
+
+  includeFiles.forEach(r => {
+    if (r.volDir === 'none') return;
+    const key = stemName(r.filename);
+    if (r.auto) {
+      volRegions[key] = { mode: r.volDir, autoRefine: true };
+    } else {
+      volRegions[key] = { mode: r.volDir, level: r.volLevel };
+    }
+  });
+
+  state.shapeRows.forEach(r => {
+    if (r.volDir === 'none') return;
+    volRegions[r.name] = { mode: r.volDir, level: r.volLevel };
+  });
+
+  out.volumeRefinement = {
+    selectedParts: volSelected,
+    regions: volRegions,
+  };
+
+  // castellatedMeshControls
+  if (s.locMode === 'multi' && s.locationsInMesh.length > 0) {
+    out.castellatedMeshControls = {
+      locationsInMesh: s.locationsInMesh.map(e => ({ point: e.point.slice(), name: e.name })),
+    };
+  } else {
+    out.castellatedMeshControls = {
+      locationInMesh: s.locationInMesh.slice(),
+    };
+  }
+
+  // scriptSettings
+  const notAComponentList = state.fileRows
+    .filter(r => r.include && r.notAComponent)
+    .map(r => r.filename);
+  out.scriptSettings = {
+    pythonUtilsDir: s.pythonUtilsDir || '',
+    fluidZoneName: s.fluidZoneName || 'domain_fluid',
+    allrunExtraEnabled: !!s.allrunExtraEnabled,
+    notAComponent: notAComponentList,
+    transformPointsEnabled: !!s.transformPointsEnabled,
+    transformPointsScale: s.transformPointsScale,
+    chtConfig: {
+      enabled: !!s.chtConfig.enabled,
+      regions: s.chtConfig.regions.map(r => ({ name: r.name, zones: r.zones.slice() })),
+    },
+  };
+
+  return out;
+}
+
+// Collapse numeric-only arrays onto one line: [1, 2] instead of multi-line.
+function compactNumericArrays(jsonStr) {
+  return jsonStr.replace(/\[\s*([\d\s.,eE+\-]+?)\s*\]/g, (match, inner) => {
+    const items = inner.split(',').map(s => s.trim()).filter(Boolean);
+    return '[' + items.join(', ') + ']';
+  });
+}
+
+async function downloadJSON() {
+  const json = buildJSON();
+  const text = compactNumericArrays(JSON.stringify(json, null, 4));
+
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'snappy_inputs.json',
+        types: [{ description: 'JSON file', accept: { 'application/json': ['.json'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return; // user cancelled
+    }
+  }
+  // Fallback: trigger browser download
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'snappy_inputs.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ─── Script Generation ────────────────────────────────────────────────────────
+function buildAllrunSnappy() {
+  const cores = state.settings.numCores;
+  const parallel = cores > 1;
+  return `#!/bin/sh
+cd "\${0%/*}" || exit                                # Run from this directory
+. \${WM_PROJECT_DIR:?}/bin/tools/RunFunctions        # Tutorial run functions
+#------------------------------------------------------------------------------
+
+runApplication blockMesh
+${parallel ? `
+runApplication decomposePar
+
+runParallel snappyHexMesh -overwrite` : `
+runApplication snappyHexMesh -overwrite`}
+#------------------------------------------------------------------------------
+`;
+}
+
+function buildAllrunExtra() {
+  const s = state.settings;
+  const cores = s.numCores;
+  const parallel = cores > 1;
+  const run = parallel ? 'runParallel' : 'runApplication';
+  const pythonDir = s.pythonUtilsDir || '/path/to/other_utilities';
+  const fluidZone = s.fluidZoneName || 'domain_fluid';
+  const excludeFiles = state.fileRows
+    .filter(r => r.include && r.notAComponent)
+    .map(r => r.filename);
+  const excludeArg = excludeFiles.length > 0
+    ? `'(${excludeFiles.join(' ')})'`
+    : `''`;
+
+  const scale = s.transformPointsScale ?? unitAutoScale(s.geometryUnit);
+  const emitTransform = s.transformPointsEnabled && scale !== 1.0;
+  const transformBlock = emitTransform
+    ? `\n# Scale the mesh from ${s.geometryUnit} to m\n${run} transformPoints -scale ${scale}\n`
+    : '';
+
+  const cfg = s.chtConfig;
+  let splitBlock = '';
+  if (cfg.enabled && cfg.regions.length >= 2) {
+    const combineZones = '(' + cfg.regions.map(r => '(' + r.zones.join(' ') + ')').join('') + ')';
+    const regionNames = '(' + cfg.regions.map(r => r.name).join(' ') + ')';
+    splitBlock = `
+# Group cellZones into named regions
+${run} splitMeshRegions -cellZonesOnly \\
+    -combineZones '${combineZones}' \\
+    -customRegionNames '${regionNames}' \\
+    -overwrite
+`;
+  }
+
+  // Post-snappy mesh check and reconstruction block
+  let finalBlock = '';
+  if (cfg.enabled && cfg.regions.length >= 2) {
+    // CHT: per-region checkMesh, then reconstructParMesh with -regions (parallel only)
+    const regionCheckLines = cfg.regions
+      .map(r => `${run} -s ${r.name} checkMesh -region ${r.name} -constant`)
+      .join('\n');
+    const regionNamesList = '(' + cfg.regions.map(r => r.name).join(' ') + ')';
+    const reconstructLine = parallel
+      ? `\nrunApplication reconstructParMesh -regions '${regionNamesList}' -constant`
+      : '';
+    finalBlock = `
+# Check mesh quality for each region
+${regionCheckLines}
+${reconstructLine}
+`;
+  } else {
+    // Non-CHT: single checkMesh, then reconstructParMesh without -regions (parallel only)
+    const reconstructLine = parallel
+      ? `\nrunApplication reconstructParMesh -constant`
+      : '';
+    finalBlock = `
+# Check mesh quality
+${run} -s final checkMesh -constant
+${reconstructLine}
+`;
+  }
+
+  return `#!/bin/bash
+cd "\${0%/*}" || exit                                # Run from this directory
+. \${WM_PROJECT_DIR:?}/bin/tools/RunFunctions        # Tutorial run functions
+#------------------------------------------------------------------------------
+
+# Path to python utility scripts — update this for your machine
+PYTHON_UTILS_DIR="${pythonDir}"
+
+${run} -s beforeConsistentCellZones checkMesh -constant
+
+python3 "$PYTHON_UTILS_DIR/ensureConsistentCellZones.py" --checkMeshLog log.checkMesh.beforeConsistentCellZones \\
+    --exclude ${excludeArg}
+
+${run} -s consistentCellZones topoSet -dict system/topoSetDict_consistentCellZones
+
+${run} -s afterConsistentCellZones checkMesh -constant
+
+python3 "$PYTHON_UTILS_DIR/createFluidCellZone.py" --checkMeshLog log.checkMesh.afterConsistentCellZones -name ${fluidZone}
+
+${run} -s fluidCellZone topoSet -dict system/topoSetDict_fluidCellZone
+${transformBlock}${splitBlock}${finalBlock}
+#------------------------------------------------------------------------------
+`;
+}
+
+function buildAllclean() {
+  const cfg = state.settings.chtConfig;
+  // Only emit per-region rm lines when splitMeshRegions was run (≥2 regions, CHT enabled)
+  const regionRmLines = (cfg.enabled && cfg.regions.length >= 2)
+    ? cfg.regions.map(r => `rm -rf constant/${r.name}`).join('\n')
+    : '';
+  const regionRmBlock = regionRmLines ? `\n${regionRmLines}\n` : '';
+
+  return `#!/bin/sh
+cd "\${0%/*}" || exit                                # Run from this directory
+. \${WM_PROJECT_DIR:?}/bin/tools/CleanFunctions      # Tutorial clean functions
+#------------------------------------------------------------------------------
+
+# This script removes everything except: the geometry files — constant/triSurface,
+# snappy_inputs.json, Allrun*, and Allclean scripts.
+
+cleanCase0
+${regionRmBlock}
+rm -rf system
+
+#------------------------------------------------------------------------------
+`;
+}
+
+async function downloadAllclean() {
+  await downloadScript('Allclean', buildAllclean());
+}
+
+async function downloadScript(filename, content) {
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: filename });
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+    }
+  }
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function downloadAllrunSnappy() {
+  await downloadScript('Allrun.snappy', buildAllrunSnappy());
+}
+
+async function downloadAllrunExtra() {
+  await downloadScript('Allrun.extra', buildAllrunExtra());
+}
+
+// ─── JSON Loading ─────────────────────────────────────────────────────────────
+function loadFromJSON(json) {
+  // Settings
+  if (json.settings) {
+    if (json.settings.geometryUnit) state.settings.geometryUnit = json.settings.geometryUnit;
+    if (json.settings.numCores !== undefined) state.settings.numCores = json.settings.numCores;
+  }
+  if (json.castellatedMeshControls) {
+    const cmc = json.castellatedMeshControls;
+    if (Array.isArray(cmc.locationsInMesh) && cmc.locationsInMesh.length > 0) {
+      state.settings.locMode = 'multi';
+      state.settings.locationsInMesh = cmc.locationsInMesh.map(e => ({
+        point: Array.isArray(e.point) ? e.point.slice(0, 3).map(Number) : [0, 0, 0],
+        name: e.name || '',
+      }));
+    } else if (Array.isArray(cmc.locationInMesh)) {
+      state.settings.locMode = 'single';
+      state.settings.locationInMesh = cmc.locationInMesh.slice(0, 3);
+    }
+  }
+  if (json.backgroundMesh) {
+    if (json.backgroundMesh.referenceGeometry) {
+      state.settings.referenceGeometry = json.backgroundMesh.referenceGeometry;
+    }
+    if (json.backgroundMesh.baseGrid !== undefined) {
+      if (Array.isArray(json.backgroundMesh.baseGrid)) {
+        state.settings.baseGridMode = 'anisotropic';
+        state.settings.baseGridAniso = json.backgroundMesh.baseGrid.slice(0, 3);
+      } else {
+        state.settings.baseGridMode = 'uniform';
+        state.settings.baseGridUniform = json.backgroundMesh.baseGrid;
+      }
+    }
+  }
+  syncSettingsToUI();
+
+  // scriptSettings (load before file rows so notAComponent list is available)
+  const notAComponentList = (json.scriptSettings && Array.isArray(json.scriptSettings.notAComponent))
+    ? json.scriptSettings.notAComponent : [];
+  if (json.scriptSettings) {
+    if (json.scriptSettings.pythonUtilsDir !== undefined) {
+      state.settings.pythonUtilsDir = json.scriptSettings.pythonUtilsDir;
+      document.getElementById('s-pyutils').value = json.scriptSettings.pythonUtilsDir;
+    }
+    if (json.scriptSettings.fluidZoneName) {
+      state.settings.fluidZoneName = json.scriptSettings.fluidZoneName;
+      document.getElementById('s-fluidzone').value = json.scriptSettings.fluidZoneName;
+    }
+    if (json.scriptSettings.allrunExtraEnabled !== undefined) {
+      state.settings.allrunExtraEnabled = !!json.scriptSettings.allrunExtraEnabled;
+      const en = state.settings.allrunExtraEnabled;
+      document.getElementById('chk-allrun-extra').checked = en;
+      document.getElementById('allrun-extra-body').style.display = en ? 'block' : 'none';
+      document.getElementById('btn-dl-extra').disabled = !en;
+      document.getElementById('btn-dl-extra').title = en ? '' : 'Enable Allrun.extra Script Settings above';
+    }
+    if (json.scriptSettings.transformPointsEnabled !== undefined) {
+      state.settings.transformPointsEnabled = !!json.scriptSettings.transformPointsEnabled;
+      const tpEn = state.settings.transformPointsEnabled;
+      document.getElementById('chk-transform-pts').checked = tpEn;
+      document.getElementById('transform-pts-body').style.display = tpEn ? 'block' : 'none';
+    }
+    if (json.scriptSettings.transformPointsScale !== undefined) {
+      state.settings.transformPointsScale = json.scriptSettings.transformPointsScale;
+      state.settings.transformPointsScaleDirty = true;
+      document.getElementById('s-transform-scale').value = json.scriptSettings.transformPointsScale;
+    }
+    if (json.scriptSettings.chtConfig) {
+      const jc = json.scriptSettings.chtConfig;
+      state.settings.chtConfig.enabled = !!jc.enabled;
+      state.settings.chtConfig.regions = Array.isArray(jc.regions)
+        ? jc.regions.map(r => ({ id: uid(), name: r.name || '', zones: Array.isArray(r.zones) ? r.zones.slice() : [] }))
+        : [];
+      state.settings.chtConfig.openPanelId = null;
+      const chtEn = state.settings.chtConfig.enabled;
+      document.getElementById('chk-cht-config').checked = chtEn;
+      document.getElementById('cht-config-body').style.display = chtEn ? 'block' : 'none';
+      if (chtEn) renderChtSection();
+    }
+    updateTransformScaleHint();
+  }
+
+  // File rows
+  state.fileRows = [];
+  const files = (json.geometry && json.geometry.files) ? json.geometry.files : [];
+  const surfaces = (json.surfaceHandling && json.surfaceHandling.surfaces) ? json.surfaceHandling.surfaces : {};
+  const regions = (json.volumeRefinement && json.volumeRefinement.regions) ? json.volumeRefinement.regions : {};
+  const selectedParts = (json.surfaceHandling && json.surfaceHandling.selectedParts) ? json.surfaceHandling.selectedParts : [];
+  const volSelectedParts = (json.volumeRefinement && json.volumeRefinement.selectedParts) ? json.volumeRefinement.selectedParts : [];
+
+  files.forEach(filename => {
+    const row = makeFileRow(filename);
+    row.auto = false;   // always start as false when loading from JSON; set true only if autoRefine present
+    const stem = stemName(filename);
+    const surfEntry = surfaces[stem];
+    const volEntry = regions[stem];
+    const inSurfSelected = selectedParts.includes(stem);
+    const inVolSelected = volSelectedParts.includes(stem);
+
+    if (surfEntry && inSurfSelected) {
+      row.surfType = surfEntry.type || 'boundary';
+      row.cellZone = !!surfEntry.cellZoneInside;
+      if (surfEntry.autoRefine || volEntry?.autoRefine) {
+        row.auto = true;
+      } else if (Array.isArray(surfEntry.refinementLevels)) {
+        row.surfMin = surfEntry.refinementLevels[0] || 0;
+        row.surfMax = surfEntry.refinementLevels[1] || 0;
+      }
+      if (surfEntry.regions && typeof surfEntry.regions === 'object') {
+        row.multiRegion = true;
+        row.subRegions = Object.entries(surfEntry.regions).map(([name, rdata]) => {
+          const sr = makeSubRegion();
+          sr.name = name;
+          if (Array.isArray(rdata.refinementLevels)) {
+            sr.surfMin = rdata.refinementLevels[0] || 0;
+            sr.surfMax = rdata.refinementLevels[1] || 0;
+          }
+          return sr;
+        });
+      }
+    } else if (inSurfSelected && !surfEntry) {
+      // In selectedParts but no explicit entry → inherits __defaults__ (boundary, 0/0, no auto)
+      row.surfType = 'boundary';
+      row.cellZone = false;
+      row.auto = false;
+      row.surfMin = 0;
+      row.surfMax = 0;
+    } else if (!inSurfSelected) {
+      row.surfType = 'none';
+    }
+
+    if (volEntry && inVolSelected && row.surfType !== 'none') {
+      row.volDir = volEntry.autoRefine ? 'inside' : (volEntry.mode || 'inside');
+      if (!volEntry.autoRefine && volEntry.level !== undefined) {
+        row.volLevel = volEntry.level;
+      }
+    } else if (inVolSelected && !volEntry) {
+      // In selectedParts but no explicit entry → inherits __defaults__ (inside, level 0, no auto)
+      row.volDir = 'inside';
+      row.auto = false;
+      row.volLevel = 0;
+    } else if (!inVolSelected) {
+      row.volDir = 'none';
+    }
+
+    state.fileRows.push(row);
+    row.notAComponent = notAComponentList.includes(filename);
+  });
+
+  // Standard shapes
+  state.shapeRows = [];
+  const shapes = (json.geometry && json.geometry.standardShapes) ? json.geometry.standardShapes : [];
+  shapes.forEach(sh => {
+    const row = makeShapeRow();
+    row.name = sh.name || row.name;
+    row.shapeType = sh.type || 'searchableSphere';
+    if (sh.centre)            row.centre    = sh.centre.slice(0, 3);
+    if (sh.radius  !== undefined) row.radius = sh.radius;
+    if (sh.point1)            row.point1    = sh.point1.slice(0, 3);
+    if (sh.point2)            row.point2    = sh.point2.slice(0, 3);
+    if (sh.min)               row.min       = sh.min.slice(0, 3);
+    if (sh.max)               row.max       = sh.max.slice(0, 3);
+    if (sh.radius1 !== undefined) row.radius1 = sh.radius1;
+    if (sh.radius2 !== undefined) row.radius2 = sh.radius2;
+    if (sh.origin)            row.origin    = sh.origin.slice(0, 3);
+    if (sh.span)              row.span      = sh.span.slice(0, 3);
+    if (sh.e1)                row.e1        = sh.e1.slice(0, 3);
+    if (sh.e3)                row.e3        = sh.e3.slice(0, 3);
+    if (sh.normal)            row.normal    = sh.normal.slice(0, 3);
+    if (sh.planeType)         row.planeType = sh.planeType;
+    if (sh.basePoint)         row.basePoint = sh.basePoint.slice(0, 3);
+    if (sh.point3)            row.point3    = sh.point3.slice(0, 3);
+    if (sh.a !== undefined)   row.planeA    = sh.a;
+    if (sh.b !== undefined)   row.planeB    = sh.b;
+    if (sh.c !== undefined)   row.planeC    = sh.c;
+    if (sh.d !== undefined)   row.planeD    = sh.d;
+    if (sh.surface)           row.surface   = sh.surface;
+    if (sh.gap !== undefined) row.gap       = sh.gap;
+
+    const surfEntry = surfaces[sh.name];
+    const volEntry = regions[sh.name];
+    const inSurf = selectedParts.includes(sh.name);
+    const inVol = volSelectedParts.includes(sh.name);
+
+    if (surfEntry && inSurf) {
+      row.surfType = surfEntry.type || 'boundary';
+      row.cellZone = !!surfEntry.cellZoneInside;
+      if (Array.isArray(surfEntry.refinementLevels)) {
+        row.surfMin = surfEntry.refinementLevels[0] || 0;
+        row.surfMax = surfEntry.refinementLevels[1] || 0;
+      }
+    }
+    if (volEntry && inVol) {
+      row.volDir = volEntry.mode || 'inside';
+      if (volEntry.level !== undefined) row.volLevel = volEntry.level;
+    }
+
+    state.shapeRows.push(row);
+  });
+
+  renderFileTable();
+  renderShapeTable();
+
+  // Set referenceGeometry dropdown after file rows rendered
+  const refSel = document.getElementById('s-refgeo');
+  refSel.value = state.settings.referenceGeometry;
+  if (refSel.value !== state.settings.referenceGeometry) {
+    state.settings.referenceGeometry = '';
+    refSel.value = '';
+  }
+}
+
+// ─── Input event on shape tbody for text fields ───────────────────────────────
+function bindShapeTextInput() {
+  document.getElementById('shape-tbody').addEventListener('input', function(e) {
+    const el = e.target;
+    if (el.type !== 'text') return;
+    const id = parseInt(el.dataset.id, 10);
+    const field = el.dataset.field;
+    if (!id || !field) return;
+    const row = findShapeRow(id);
+    if (row && field === 'name') row.name = el.value;
+  });
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+(function init() {
+  bindSettings();
+  bindTableEvents();
+  bindToolbar();
+  bindChtSection();
+  bindShapeTextInput();
+  renderFileTable();
+  renderShapeTable();
+  updateBaseGridUI();
+  updateDownloadButtonState();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2512                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volVectorField;
+    location    "{{ location }}";
+    object      U;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 1 -1 0 0 0 0];
+
+internalField   {{ internal_field }};
+
+boundaryField
+{
+    {% if patches or cht_patches %}
+    #includeEtc "caseDicts/setConstraintTypes"
+
+    {% for patch in cht_patches %}
+    {{ patch.name }}
+    {
+        type    noSlip;
+    }
+
+    {% endfor %}
+    {% for patch in patches %}
+    {% if patch.bc_type == "velocity-inlet" %}
+    {% if patch.velocity.is_time_varying %}
+    {% if patch.velocity.mode == "normal-magnitude" %}
+    {{ patch.name }}
+    {
+        type            surfaceNormalFixedValue;
+        refValue        uniform -1.0;
+        ramp            csvFile;
+        rampCoeffs
+        {
+            nHeaderLine         {{ patch.velocity.time_varying.skip_rows }};
+            refColumn           {{ patch.velocity.time_varying.ref_column }};
+            componentColumns    ({{ patch.velocity.time_varying.component_columns | join(' ') }});
+            separator           ",";
+            mergeSeparators     false;
+            file                "inputData/{{ patch.velocity.time_varying.csv_file }}";
+            outOfBounds         clamp;
+            interpolationScheme linear;
+        }
+    }
+
+    {% elif patch.velocity.mode == "components" %}
+    {{ patch.name }}
+    {
+        type                uniformFixedValue;
+        uniformValue        csvFile;
+        uniformValueCoeffs
+        {
+            nHeaderLine         {{ patch.velocity.time_varying.skip_rows }};
+            refColumn           {{ patch.velocity.time_varying.ref_column }};
+            componentColumns    ({{ patch.velocity.time_varying.component_columns | join(' ') }});
+            separator           ",";
+            mergeSeparators     false;
+            file                "inputData/{{ patch.velocity.time_varying.csv_file }}";
+            outOfBounds         clamp;
+            interpolationScheme linear;
+        }
+    }
+
+    {% endif %}
+    {% else %}
+    {% if patch.velocity.mode == "components" %}
+    {{ patch.name }}
+    {
+        type    fixedValue;
+        value   uniform {{ patch.velocity.of_value }};
+    }
+
+    {% elif patch.velocity.mode == "normal-magnitude" %}
+    {{ patch.name }}
+    {
+        type        surfaceNormalFixedValue;
+        refValue    uniform {{ patch.velocity.ref_value }};
+        value       $internalField;
+    }
+
+    {% endif %}
+    {% endif %}
+    {% elif patch.bc_type == "total-pressure-inlet" or (patch.bc_type == "pressure-outlet" and not patch.prevent_backflow) %}
+    {{ patch.name }}
+    {
+        type    pressureInletOutletVelocity;
+        value   $internalField;
+    }
+
+    {% elif patch.bc_type == "pressure-outlet" and patch.prevent_backflow %}
+    {{ patch.name }}
+    {
+        type        inletOutlet;
+        inletValue  uniform (0 0 0);
+        value       $internalField;
+    }
+
+    {% elif patch.bc_type == "no-slip-wall" %}
+    {{ patch.name }}
+    {
+        type    noSlip;
+    }
+
+    {% elif patch.bc_type == "slip-wall" %}
+    {{ patch.name }}
+    {
+        type    slip;
+    }
+
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+}
+
+// ************************************************************************* //

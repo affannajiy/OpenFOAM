@@ -2,8 +2,26 @@
 """
 snappy_generator.py — Backend for Tab 2 (SnappyHexMesh Dict generator and runner).
 
-Generates snappyHexMeshDict via foamDictionary subprocess calls, mirroring
-the call sequence from generateSnappyHexMeshDict.py, then runs snappyHexMesh.
+Renders system/snappyHexMeshDict in one pass from a Jinja2 template
+(templates/snappyHexMeshDict.template), following the template+JSON workflow
+from workflow_package/openfoam_electronics_thermal_mgmt (Vijay's
+setup_snappy.py), then runs snappyHexMesh -overwrite.
+
+Key differences from the old foamDictionary-chain implementation:
+  • Whole dictionary written atomically from a template — no partial dicts on
+    failure, output is diffable and human-readable.
+  • locationInMesh is nudged by +1e-6 so it can never coincide with a
+    background-mesh cell face (a classic cause of empty/discarded meshes).
+  • faceZone + cellZone surfaces produce named zones so cells INSIDE inner
+    solid bodies are kept and tagged instead of silently discarded — this was
+    the root cause of "inner cylinder invisible inside the cube".
+  • Boundary surfaces get patchInfo { type wall; inGroups (walls); }.
+  • Feature snapping is always implicit (no .eMesh files needed) —
+    features ( ) stays empty, matching the reference workflow.
+  • Layers use snappyHexMesh's built-in medial-axis shrinker — no
+    fvSchemes/fvSolution writes needed.
+  • The exact GUI inputs are recorded to <case>/snappy_inputs.json so a run
+    can be inspected, shared, or reproduced without the GUI.
 
 Config dict schema (passed in from ui_snappy_hex._collect_data):
     {
@@ -11,8 +29,8 @@ Config dict schema (passed in from ui_snappy_hex._collect_data):
             "files": [
                 {
                     "filename": "wall.stl",       # just the filename
-                    "surface_type": "boundary",   # "none" | "boundary" | "faceZone"
-                    "cell_zone": False,            # True only when surface_type=="faceZone"
+                    "surface_type": "boundary",   # "none" | "boundary" | "facezone"
+                    "cell_zone": False,            # True only when surface_type=="facezone"
                     "surface_min": 1,
                     "surface_max": 2,
                     "vol_direction": "inside",    # "none" | "inside" | "outside"
@@ -39,7 +57,7 @@ Config dict schema (passed in from ui_snappy_hex._collect_data):
             "locationInMesh": [0.0, 0.0, 0.0]
         },
         "snap": {
-            "implicitFeatureSnap": True
+            "implicitFeatureSnap": True           # kept for compatibility; always implicit
         },
         "layers": {
             "enabled": False,
@@ -55,7 +73,12 @@ import shutil
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _DEFAULTS_PATH = os.path.join(_HERE, "defaults.json")
+_TEMPLATE_DIR = os.path.join(_HERE, "templates")
 _OF_BASHRC = "/usr/lib/openfoam/openfoam2506/etc/bashrc"
+
+# Tiny offset added to locationInMesh so the point can never sit exactly on a
+# background-mesh cell face/edge (snappyHexMesh discards the mesh in that case).
+_LOCATION_OFFSET = 1e-6
 
 
 def _load_defaults() -> dict:
@@ -63,17 +86,18 @@ def _load_defaults() -> dict:
         return json.load(f)
 
 
-def _fmt_vec(v: list) -> str:
-    """Format a 3-element list as an OpenFOAM vector literal, e.g. '(0.0 1.0 -1.0)'."""
-    return f"({v[0]} {v[1]} {v[2]})"
-
-
-def _of_bool(v) -> str:
-    """Convert a Python bool or string to an OpenFOAM boolean literal ('true'/'false')."""
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    s = str(v).lower()
-    return s if s in ("true", "false") else str(v)
+def _get_jinja_env():
+    """Import jinja2 lazily so a missing package produces a friendly message
+    in the log drawer instead of killing the whole application at import time."""
+    try:
+        from jinja2 import Environment, FileSystemLoader
+    except ImportError:
+        raise RuntimeError(
+            "The 'jinja2' Python package is required to generate snappyHexMeshDict "
+            "but is not installed in WSL.\n"
+            "Install it with:  sudo apt-get install -y python3-jinja2\n"
+            "then click Generate again.")
+    return Environment(loader=FileSystemLoader(_TEMPLATE_DIR))
 
 
 def _get_stl_zone_names(stl_path: str) -> list:
@@ -124,118 +148,6 @@ def _mesh_name_for_stl(fname: str, const_dir: str) -> tuple[str, list]:
     return stem, zones
 
 
-def _write_header(dict_path: str, geometry_unit: str) -> None:
-    with open(dict_path, "w") as f:
-        f.write("/*--------------------------------*- C++ -*----------------------------------*\\\n")
-        f.write("| =========                 |                                                 |\n")
-        f.write("| \\\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |\n")
-        f.write("|  \\\\    /   O peration     | Version:  v2506                                 |\n")
-        f.write("|   \\\\  /    A nd           | Website:  www.openfoam.com                      |\n")
-        f.write("|    \\\\/     M anipulation  |                                                 |\n")
-        f.write("\\*---------------------------------------------------------------------------*/\n")
-        f.write("FoamFile\n")
-        f.write("{\n")
-        f.write("\tversion     2.0;\n")
-        f.write("\tformat      ascii;\n")
-        f.write("\tclass       dictionary;\n")
-        f.write("\tobject      snappyHexMeshDict;\n")
-        f.write("}\n")
-        f.write("// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //\n")
-        f.write(f"// Geometry unit: {geometry_unit} (reference only — STL files assumed to be in simulation units)\n")
-        f.write("\n")
-
-
-def _inject_features_block(dict_path: str, edge_files: list, log_cb) -> None:
-    """
-    Splice the features block into castellatedMeshControls by direct file manipulation.
-
-    foamDictionary cannot write list-of-dict syntax used by the features entry,
-    so we read the file, find the closing brace of castellatedMeshControls, and
-    insert the features block just before it — matching the technique in
-    generateSnappyHexMeshDict.py.
-    """
-    with open(dict_path) as f:
-        lines = f.readlines()
-
-    modified = []
-    inside_castelled = False
-    for line in lines:
-        stripped = line.strip()
-        modified.append(line)
-        if stripped.startswith("castellatedMeshControls"):
-            inside_castelled = True
-        if inside_castelled and stripped == "}":
-            modified.insert(-1, "    features\n")
-            modified.insert(-1, "    (\n")
-            for ef in edge_files:
-                modified.insert(-1, "        {\n")
-                modified.insert(-1, f'        file    "{ef}";\n')
-                modified.insert(-1,  "        level    0;\n")
-                modified.insert(-1, "        }\n")
-            modified.insert(-1, "    );\n")
-            inside_castelled = False
-
-    with open(dict_path, "w") as f:
-        f.writelines(modified)
-    log_cb("[features] Injected features block into castellatedMeshControls.", "info")
-
-
-def _write_fv_files(sys_dir: str, log_cb) -> None:
-    """Write fvSchemes and fvSolution needed for displacementMotionSolver layer addition."""
-    fv_schemes = """\
-FoamFile
-{
-    version         2;
-    format          ascii;
-    class           dictionary;
-    object          fvSchemes;
-}
-
-divSchemes
-{
-
-}
-
-gradSchemes
-{
-    grad(cellDisplacement)  cellLimited leastSquares 1;
-
-}
-
-laplacianSchemes
-{
-    laplacian(diffusivity,cellDisplacement) Gauss linear limited corrected 0.5;
-}
-
-"""
-    fv_solution = """\
-FoamFile
-{
-    format      ascii;
-    class       dictionary;
-    object      fvSolution;
-}
-
-solvers
-{
-   cellDisplacement
-   {
-       solver          GAMG;
-       smoother        GaussSeidel;
-       minIter         1;
-       tolerance       1e-7;
-       relTol          0.01;
-   }
-}
-
-"""
-    for fname, content in [("fvSchemes", fv_schemes), ("fvSolution", fv_solution)]:
-        path = os.path.join(sys_dir, fname)
-        with open(path, "w") as fp:
-            fp.write(content)
-        log_cb(f"[layers] Wrote system/{fname}", "info")
-
-
 def validate_config(config: dict) -> None:
     """
     Check the GUI config for common misconfigurations that produce broken or
@@ -274,7 +186,8 @@ def validate_config(config: dict) -> None:
         raise ValueError(
             "No STL has a Surface Type set — snappyHexMesh has no patches to snap "
             "to and will produce an empty mesh.\n"
-            "Set at least one file to Surface Type = Boundary in Section 01.")
+            "Set the outer domain to Boundary and inner solid bodies to "
+            "FaceZone with Cell Zone ticked in Section 01.")
 
     vol_dirs = [f.get("vol_direction", "none").lower() for f in files]
     non_none = [v for v in vol_dirs if v != "none"]
@@ -284,6 +197,221 @@ def validate_config(config: dict) -> None:
             "always wrong.\n"
             "For an outer domain box, use Vol Direction = None.\n"
             "For a solid body in fluid, use Vol Direction = Inside.")
+
+
+def _flatten_shape(shape: dict) -> dict:
+    """Flatten a GUI standard-shape dict into a template geometry entry."""
+    geom = {"name": shape["name"], "type": shape["type"], "is_standard_shape": True}
+    geom.update(shape.get("params", {}))
+    return geom
+
+
+def _build_render_context(config: dict, case_dir: str, defaults: dict, log_cb) -> dict:
+    """Translate the GUI config into the variables the Jinja2 template expects."""
+    geom_cfg   = config.get("geometry", {})
+    cast_cfg   = config.get("castellated", {})
+    layers_cfg = config.get("layers", {})
+    files_cfg  = geom_cfg.get("files", [])
+    shapes_cfg = geom_cfg.get("standard_shapes", [])
+    add_layers = layers_cfg.get("enabled", False)
+
+    const_dir = os.path.join(case_dir, "constant")
+
+    geometry = []
+    surface_refinements = []
+    volume_refinements = []
+
+    for finfo in files_cfg:
+        fname = finfo["filename"]
+        mesh_name, zones = _mesh_name_for_stl(fname, const_dir)
+        finfo["_mesh_name"] = mesh_name
+
+        geom = {"file": fname, "name": mesh_name, "is_standard_shape": False}
+        if len(zones) > 1:
+            geom["regions"] = [{"originalName": z, "renamedAs": z} for z in zones]
+        geometry.append(geom)
+
+        surf_type = finfo.get("surface_type", "none").lower()
+        cell_zone = finfo.get("cell_zone", False)
+        vol_dir   = finfo.get("vol_direction", "none").lower()
+
+        if surf_type != "none":
+            surf = {
+                "name": mesh_name,
+                "refinementLevels": [finfo.get("surface_min", 0), finfo.get("surface_max", 1)],
+                "type": "faceZone" if surf_type == "facezone" else "boundary",
+                "regions": None,
+                "faceZoneName": None,
+                "faceType": None,
+                "cellZoneInside": None,
+                "cellZoneName": None,
+            }
+            if surf["type"] == "faceZone":
+                surf["faceZoneName"] = mesh_name
+                surf["faceType"] = "internal"
+                if cell_zone:
+                    surf["cellZoneInside"] = "inside"
+                    surf["cellZoneName"] = mesh_name
+                else:
+                    log_cb(
+                        f"[warn] {fname}: FaceZone without Cell Zone — faces are tagged "
+                        "but cells inside are NOT kept as a named group. Tick Cell Zone "
+                        "if this is a solid body inside the domain.", "warn")
+            surface_refinements.append(surf)
+
+        if vol_dir in ("inside", "outside"):
+            if surf_type == "boundary":
+                # An outer shell defines the domain limit. A refinement region
+                # here is at best a no-op (inside) and at worst refines the
+                # discarded padding shell, producing a mesh that is finer at the
+                # domain edges than at the geometry surface — a blobby result.
+                # Vijay's reference never puts a region on the boundary shell.
+                log_cb(
+                    f"[warn] {fname}: Vol Direction ignored on a Boundary (outer "
+                    "shell) — a refinement region on the domain limit does nothing "
+                    "useful (Inside) or refines the discarded padding into a blobby "
+                    "mesh (Outside). Skipped.", "warn")
+            elif vol_dir == "outside":
+                log_cb(
+                    f"[warn] {fname}: vol_direction=outside refines cells OUTSIDE this "
+                    "surface. For an outer domain box this is almost certainly wrong — "
+                    "use vol_direction=None.", "warn")
+                volume_refinements.append({
+                    "name": mesh_name,
+                    "mode": vol_dir,
+                    "level": finfo.get("vol_level", 1),
+                })
+            else:
+                volume_refinements.append({
+                    "name": mesh_name,
+                    "mode": vol_dir,
+                    "level": finfo.get("vol_level", 1),
+                })
+        elif surf_type == "facezone" and cell_zone:
+            log_cb(
+                f"[info] {fname}: tip — Vol Dir = Inside adds refinement inside this "
+                "body and helps snappyHexMesh capture small parts.", "info")
+
+    for shape in shapes_cfg:
+        geometry.append(_flatten_shape(shape))
+        vol_dir = shape.get("vol_direction", "none").lower()
+        if vol_dir in ("inside", "outside"):
+            volume_refinements.append({
+                "name": shape["name"],
+                "mode": vol_dir,
+                "level": shape.get("vol_level", 1),
+            })
+
+    # locationInMesh: apply the anti-cell-face nudge (in-memory only)
+    loc = [float(v) + _LOCATION_OFFSET for v in cast_cfg.get("locationInMesh", [0, 0, 0])]
+
+    # castellatedMeshControls: defaults + GUI override for nCellsBetweenLevels
+    cmc = dict(defaults.get("castellatedMeshControls", {}))
+    cmc["nCellsBetweenLevels"] = cast_cfg.get(
+        "nCellsBetweenLevels", cmc.get("nCellsBetweenLevels", 2))
+
+    # addLayersControls: defaults + per-patch layers dict from the GUI
+    alc = dict(defaults.get("addLayersControls", {}))
+    layers = {}
+    if add_layers:
+        for patch_info in layers_cfg.get("patches", []):
+            layers[patch_info["name"]] = {
+                "nSurfaceLayers": patch_info.get("nSurfaceLayers", 3)}
+    alc["layers"] = layers
+
+    return {
+        "openfoamVersion": "v" + str(defaults.get("settings", {}).get("openfoamVersion", "2506")),
+        "castellatedMesh": True,
+        "snap": True,
+        "addLayers": add_layers,
+        "geometry": geometry,
+        "surface_refinements": surface_refinements,
+        "volume_refinements": volume_refinements,
+        "locationInMesh": loc,
+        "castellatedMeshControls": cmc,
+        "snapControls": defaults.get("snapControls", {}),
+        "addLayersControls": alc,
+        "meshQualityControls": defaults.get("meshQualityControls", {}),
+        "mergeTolerance": defaults.get("settings", {}).get("mergeTolerance", 1e-6),
+    }
+
+
+def _write_inputs_record(config: dict, case_dir: str, defaults: dict, log_cb) -> None:
+    """
+    Write snappy_inputs.json into the case directory — a human-readable record
+    of exactly what the GUI meshed, in a schema close to the reference
+    workflow's (workflow_package). Informational only: the engine renders from
+    the in-memory config, never from this file.
+    """
+    files_cfg  = config.get("geometry", {}).get("files", [])
+    shapes_cfg = config.get("geometry", {}).get("standard_shapes", [])
+    cast_cfg   = config.get("castellated", {})
+    layers_cfg = config.get("layers", {})
+
+    surfaces = {}
+    vol_regions = {}
+    surf_selected = []
+    vol_selected = []
+
+    for finfo in files_cfg:
+        stem = os.path.splitext(finfo["filename"])[0]
+        surf_type = finfo.get("surface_type", "none").lower()
+        if surf_type != "none":
+            surf_selected.append(stem)
+            entry = {
+                "type": "faceZone" if surf_type == "facezone" else "boundary",
+                "refinementLevels": [finfo.get("surface_min", 0), finfo.get("surface_max", 1)],
+            }
+            if surf_type == "facezone" and finfo.get("cell_zone", False):
+                entry["cellZoneInside"] = "inside"
+            surfaces[stem] = entry
+        if (finfo.get("vol_direction", "none").lower() in ("inside", "outside")
+                and surf_type != "boundary"):
+            vol_selected.append(stem)
+            vol_regions[stem] = {
+                "mode": finfo["vol_direction"].lower(),
+                "level": finfo.get("vol_level", 1),
+            }
+
+    for shape in shapes_cfg:
+        if shape.get("vol_direction", "none").lower() in ("inside", "outside"):
+            vol_selected.append(shape["name"])
+            vol_regions[shape["name"]] = {
+                "mode": shape["vol_direction"].lower(),
+                "level": shape.get("vol_level", 1),
+            }
+
+    record = {
+        "_generator": "openfoam_ui — GUI run record (backgroundMesh handled by Background Mesh tab)",
+        "settings": {
+            "geometryUnit": cast_cfg.get("geometry_unit", "m"),
+            "addLayers": layers_cfg.get("enabled", False),
+            "mergeTolerance": defaults.get("settings", {}).get("mergeTolerance", 1e-6),
+        },
+        "geometry": {
+            "files": [f["filename"] for f in files_cfg],
+            "standardShapes": [
+                {"name": s["name"], "type": s["type"], **s.get("params", {})}
+                for s in shapes_cfg
+            ],
+        },
+        "surfaceHandling": {"selectedParts": surf_selected, "surfaces": surfaces},
+        "volumeRefinement": {"selectedParts": vol_selected, "regions": vol_regions},
+        "castellatedMeshControls": {
+            "locationInMesh": cast_cfg.get("locationInMesh", [0, 0, 0]),
+            "nCellsBetweenLevels": cast_cfg.get("nCellsBetweenLevels", 2),
+        },
+    }
+    if layers_cfg.get("enabled", False):
+        record["layers"] = {
+            p["name"]: {"nSurfaceLayers": p.get("nSurfaceLayers", 3)}
+            for p in layers_cfg.get("patches", [])
+        }
+
+    path = os.path.join(case_dir, "snappy_inputs.json")
+    with open(path, "w") as f:
+        json.dump(record, f, indent=4)
+    log_cb(f"[generate] Inputs recorded to {path}", "info")
 
 
 def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
@@ -307,289 +435,33 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
     """
     validate_config(config)
 
+    env = _get_jinja_env()
     defaults = _load_defaults()
-    dc = defaults.get("castellatedMeshControls", {})
-    ds = defaults.get("snapControls", {})
-    dl = defaults.get("addLayersControls", {})
-    dq = defaults.get("meshQualityControls", {})
-    merge_tol = defaults.get("settings", {}).get("mergeTolerance", 1e-6)
 
-    geom_cfg    = config.get("geometry", {})
-    cast_cfg    = config.get("castellated", {})
-    snap_cfg    = config.get("snap", {})
-    layers_cfg  = config.get("layers", {})
-    files_cfg   = geom_cfg.get("files", [])
-    shapes_cfg  = geom_cfg.get("standard_shapes", [])
-    add_layers  = layers_cfg.get("enabled", False)
-    implicit    = snap_cfg.get("implicitFeatureSnap", True)
-    geom_unit   = cast_cfg.get("geometry_unit", "m")
-
-    sys_dir  = os.path.join(case_dir, "system")
-    const_dir = os.path.join(case_dir, "constant")
+    sys_dir = os.path.join(case_dir, "system")
+    os.makedirs(sys_dir, exist_ok=True)
     dict_path = os.path.join(sys_dir, "snappyHexMeshDict")
-    dict_rel  = "system/snappyHexMeshDict"
 
-    # ── Inner helpers that close over case_dir / dict_rel / log_cb ───────────────
+    # ── Build context and render the whole dictionary in one pass ───────────────
+    log_cb("[generate] Building snappyHexMeshDict from template...", "info")
+    context = _build_render_context(config, case_dir, defaults, log_cb)
 
-    def _bash(cmd_str: str) -> subprocess.CompletedProcess:
-        """Run cmd_str with the OF environment sourced; closes over case_dir."""
-        return subprocess.run(
-            ["bash", "-c", f"source {_OF_BASHRC} && {cmd_str}"],
-            cwd=case_dir, capture_output=True, text=True)
+    try:
+        template = env.get_template("snappyHexMeshDict.template")
+        rendered = template.render(**context)
+    except Exception as e:
+        raise RuntimeError(f"Template rendering failed: {e}")
 
-    def fd(entry: str, value: str) -> None:
-        """Run foamDictionary -add for the given entry/value."""
-        cmd_str = f"foamDictionary {dict_rel} -entry {entry} -add {value}"
-        log_cb(f"  {cmd_str}", "cmd")
-        res = _bash(cmd_str)
-        if res.returncode != 0:
-            log_cb(res.stderr.strip(), "error")
-            raise RuntimeError(f"foamDictionary failed: {entry}")
+    with open(dict_path, "w") as f:
+        f.write(rendered)
+    log_cb(f"[generate] Wrote {dict_path}", "info")
+    log_cb(
+        f"[generate] Surfaces: {len(context['surface_refinements'])}, "
+        f"volume regions: {len(context['volume_refinements'])}, "
+        f"layers: {'on' if context['addLayers'] else 'off'}", "info")
 
-    def fd_set(entry: str, value: str) -> None:
-        """Run foamDictionary -set for the given entry/value."""
-        cmd_str = f"foamDictionary {dict_rel} -entry {entry} -set {value}"
-        log_cb(f"  {cmd_str}", "cmd")
-        res = _bash(cmd_str)
-        if res.returncode != 0:
-            log_cb(res.stderr.strip(), "error")
-            raise RuntimeError(f"foamDictionary -set failed: {entry}")
-
-    # ── Write header ─────────────────────────────────────────────────────────────
-    log_cb("[generate] Writing snappyHexMeshDict header...", "info")
-    _write_header(dict_path, geom_unit)
-
-    # ── Top-level switches ───────────────────────────────────────────────────────
-    fd("castellatedMesh", "true")
-    fd("snap", "true")
-    fd("addLayers", "true" if add_layers else "false")
-
-    # ── Empty section dicts (must exist before sub-key writes) ───────────────────
-    fd("geometry",                '"{}"')
-    fd("castellatedMeshControls", '"{}"')
-    fd("snapControls",            '"{}"')
-    fd("addLayersControls",       '"{}"')
-    fd("meshQualityControls",     '"{}"')
-    fd("mergeTolerance",          str(merge_tol))
-
-    # ── Geometry: STL/OBJ files ──────────────────────────────────────────────────
-    log_cb("[generate] Writing geometry section...", "info")
-
-    for finfo in files_cfg:
-        fname = finfo["filename"]
-        mesh_name, zones = _mesh_name_for_stl(fname, const_dir)
-        finfo["_mesh_name"] = mesh_name
-        finfo["_zones"]     = zones
-
-        fd(f"geometry/{fname}",      '"{}"')
-        fd(f"geometry/{fname}/type", "triSurfaceMesh")
-        fd(f"geometry/{fname}/name", mesh_name)
-
-        if len(zones) > 1:
-            fd(f"geometry/{fname}/regions", '"{}"')
-            for zone in zones:
-                fd(f"geometry/{fname}/regions/{zone}",      '"{}"')
-                fd(f"geometry/{fname}/regions/{zone}/name", zone)
-
-    # ── Geometry: standard shapes ────────────────────────────────────────────────
-    for shape in shapes_cfg:
-        name   = shape["name"]
-        stype  = shape["type"]
-        params = shape.get("params", {})
-
-        fd(f"geometry/{name}",      '"{}"')
-        fd(f"geometry/{name}/type", stype)
-
-        if stype == "searchableBox":
-            mn = params.get("min", [0, 0, 0])
-            mx = params.get("max", [1, 1, 1])
-            fd(f"geometry/{name}/min", f'"{_fmt_vec(mn)}"')
-            fd(f"geometry/{name}/max", f'"{_fmt_vec(mx)}"')
-        elif stype == "searchableSphere":
-            c = params.get("centre", [0, 0, 0])
-            r = params.get("radius", 1.0)
-            fd(f"geometry/{name}/centre", f'"{_fmt_vec(c)}"')
-            fd(f"geometry/{name}/radius", str(r))
-        elif stype == "searchableCylinder":
-            p1 = params.get("point1", [0, 0, 0])
-            p2 = params.get("point2", [1, 0, 0])
-            r  = params.get("radius", 0.5)
-            fd(f"geometry/{name}/point1", f'"{_fmt_vec(p1)}"')
-            fd(f"geometry/{name}/point2", f'"{_fmt_vec(p2)}"')
-            fd(f"geometry/{name}/radius", str(r))
-
-    # ── CastellatedMeshControls: basic controls ──────────────────────────────────
-    log_cb("[generate] Writing castellatedMeshControls...", "info")
-    fd("castellatedMeshControls/maxLocalCells",       str(dc.get("maxLocalCells",       100000000)))
-    fd("castellatedMeshControls/maxGlobalCells",      str(dc.get("maxGlobalCells",      300000000)))
-    fd("castellatedMeshControls/minRefinementCells",  str(dc.get("minRefinementCells",  10)))
-    fd("castellatedMeshControls/maxLoadUnbalance",    str(dc.get("maxLoadUnbalance",    0.1)))
-
-    # ── features block — direct file manipulation (foamDictionary can't write lists)
-    edge_files = [fi["filename"] for fi in files_cfg
-                  if fi["filename"].lower().endswith(".emesh")]
-    _inject_features_block(dict_path, edge_files, log_cb)
-
-    # ── refinementRegions ────────────────────────────────────────────────────────
-    # Collect entries first so the parent dict and children are written in a single
-    # pass — keeps the structure obvious and avoids any chance of the foamDictionary
-    # "-add into an existing empty dict" edge case some OF builds have.
-    region_entries: list = []   # (name, mode, level)
-    for finfo in files_cfg:
-        fname     = finfo["filename"]
-        mesh_name = finfo.get("_mesh_name") or os.path.splitext(fname)[0]
-        surf_type = finfo.get("surface_type", "none").lower()
-        cell_zone = finfo.get("cell_zone", False)
-        vol_dir   = finfo.get("vol_direction", "none").lower()
-        # Also write refinementRegions for faceZone+cellZone even when vol_direction is "none",
-        # since cellZoneInside=inside requires a matching refinementRegions entry to work.
-        force_inside = (surf_type == "facezone" and cell_zone and vol_dir == "none")
-        if vol_dir == "none" and not force_inside:
-            continue
-        if vol_dir == "outside":
-            log_cb(
-                f"[warn] {fname}: vol_direction=outside refines cells OUTSIDE this surface. "
-                "For an outer domain box this is almost certainly wrong — use vol_direction=None.",
-                "warn")
-        mode  = vol_dir if vol_dir != "none" else "inside"
-        level = finfo.get("vol_level", 1)
-        region_entries.append((mesh_name, mode, level))
-
-    for shape in shapes_cfg:
-        name    = shape["name"]
-        vol_dir = shape.get("vol_direction", "none").lower()
-        if vol_dir == "none":
-            continue
-        mode  = "inside" if vol_dir == "inside" else "outside"
-        level = shape.get("vol_level", 1)
-        region_entries.append((name, mode, level))
-
-    fd("castellatedMeshControls/refinementRegions", '"{}"')
-    for name, mode, level in region_entries:
-        fd(f"castellatedMeshControls/refinementRegions/{name}",        '"{}"')
-        fd(f"castellatedMeshControls/refinementRegions/{name}/mode",   mode)
-        fd(f"castellatedMeshControls/refinementRegions/{name}/levels", f'"((1.0 {level}))"')
-
-    # ── refinementSurfaces ───────────────────────────────────────────────────────
-    fd("castellatedMeshControls/refinementSurfaces", '"{}"')
-
-    for finfo in files_cfg:
-        fname     = finfo["filename"]
-        mesh_name = finfo.get("_mesh_name") or os.path.splitext(fname)[0]
-        zones     = finfo.get("_zones", [])
-        surf_type = finfo.get("surface_type", "none").lower()
-        cell_zone = finfo.get("cell_zone", False)
-        smin      = finfo.get("surface_min", 0)
-        smax      = finfo.get("surface_max", 1)
-
-        if surf_type == "none":
-            continue
-
-        fd(f"castellatedMeshControls/refinementSurfaces/{mesh_name}",       '"{}"')
-        fd(f"castellatedMeshControls/refinementSurfaces/{mesh_name}/level", f'"({smin} {smax})"')
-
-        if len(zones) > 1:
-            fd(f"castellatedMeshControls/refinementSurfaces/{mesh_name}/regions", '"{}"')
-            for zone in zones:
-                base = f"castellatedMeshControls/refinementSurfaces/{mesh_name}/regions/{zone}"
-                fd(base,          '"{}"')
-                fd(f"{base}/level", f'"({smin} {smax})"')
-                _write_surface_patch_info(fd, base, surf_type, cell_zone, zone, mesh_name)
-        else:
-            base = f"castellatedMeshControls/refinementSurfaces/{mesh_name}"
-            _write_surface_patch_info(fd, base, surf_type, cell_zone, mesh_name, mesh_name)
-
-    # ── CastellatedMeshControls: remaining controls ──────────────────────────────
-    ncbl = cast_cfg.get("nCellsBetweenLevels", dc.get("nCellsBetweenLevels", 2))
-    loc  = cast_cfg.get("locationInMesh", [0.0, 0.0, 0.0])
-    fd("castellatedMeshControls/resolveFeatureAngle",        str(dc.get("resolveFeatureAngle", 30)))
-    fd("castellatedMeshControls/nCellsBetweenLevels",        str(ncbl))
-    fd("castellatedMeshControls/locationInMesh",             f'"{_fmt_vec(loc)}"')
-    fd("castellatedMeshControls/allowFreeStandingZoneFaces", "true")
-
-    # ── snapControls ─────────────────────────────────────────────────────────────
-    log_cb("[generate] Writing snapControls...", "info")
-    fd("snapControls/nSmoothPatch",     str(ds.get("nSmoothPatch",     3)))
-    fd("snapControls/nSmoothInternal",  str(ds.get("nSmoothInternal",  5)))
-    fd("snapControls/tolerance",        str(ds.get("tolerance",        2.0)))
-    fd("snapControls/nSolveIter",       str(ds.get("nSolveIter",       30)))
-    fd("snapControls/nRelaxIter",       str(ds.get("nRelaxIter",       5)))
-    fd("snapControls/nFeatureSnapIter", str(ds.get("nFeatureSnapIter", 10)))
-
-    if implicit:
-        fd("snapControls/implicitFeatureSnap",    "true")
-        fd("snapControls/explicitFeatureSnap",    "false")
-        fd("snapControls/multiRegionFeatureSnap", "false")
-    else:
-        fd("snapControls/implicitFeatureSnap",    "false")
-        fd("snapControls/explicitFeatureSnap",    "true")
-        fd("snapControls/multiRegionFeatureSnap", "true" if edge_files else "false")
-
-    # ── addLayersControls ────────────────────────────────────────────────────────
-    if add_layers:
-        log_cb("[generate] Writing addLayersControls...", "info")
-        fd_set("addLayers", "true")  # ensure correct value after initial -add false
-
-        fd("addLayersControls/relativeSizes",         _of_bool(dl.get("relativeSizes",         True)))
-        fd("addLayersControls/minThickness",          str(dl.get("minThickness",          0.1)))
-        fd("addLayersControls/featureAngle",          str(dl.get("featureAngle",          120)))
-        fd("addLayersControls/nGrow",                 str(dl.get("nGrow",                 0)))
-        fd("addLayersControls/maxFaceThicknessRatio", str(dl.get("maxFaceThicknessRatio", 0.5)))
-        fd("addLayersControls/nBufferCellsNoExtrude", str(dl.get("nBufferCellsNoExtrude", 0)))
-        fd("addLayersControls/nLayerIter",            str(dl.get("nLayerIter",            50)))
-        fd("addLayersControls/nSmoothThickness",      str(dl.get("nSmoothThickness",      10)))
-        fd("addLayersControls/nRelaxIter",            str(dl.get("nRelaxIter",            5)))
-        fd("addLayersControls/nRelaxedIter",          str(dl.get("nRelaxedIter",          20)))
-        fd("addLayersControls/nSmoothSurfaceNormals", str(dl.get("nSmoothSurfaceNormals", 1)))
-        fd("addLayersControls/thicknessModel",        str(dl.get("thicknessModel",        "finalAndExpansion")))
-        fd("addLayersControls/finalLayerThickness",   str(dl.get("finalLayerThickness",   0.5)))
-        fd("addLayersControls/expansionRatio",        str(dl.get("expansionRatio",        1.1)))
-        fd("addLayersControls/layers",                '"{}"')
-
-        patch_list = "( "
-        for patch_info in layers_cfg.get("patches", []):
-            pname = patch_info["name"]
-            n     = patch_info.get("nSurfaceLayers", 3)
-            patch_list += pname + " "
-            fd(f"addLayersControls/layers/{pname}",                  '"{}"')
-            fd(f"addLayersControls/layers/{pname}/nSurfaceLayers",   str(n))
-        patch_list += ");"
-
-        fd("addLayersControls/meshShrinker", "displacementMotionSolver")
-        fd("addLayersControls/solver",       "displacementLaplacian")
-
-        # patch_list is an OF list literal "( p1 p2 );" — embed directly into the dict value
-        text_string = "{ diffusivity quadratic inverseDistance " + patch_list + " }"
-        cmd_str = (f'foamDictionary {dict_rel} -entry addLayersControls/displacementLaplacianCoeffs'
-                   f' -add "{text_string}"')
-        log_cb(f"  {cmd_str}", "cmd")
-        res = _bash(cmd_str)
-        if res.returncode != 0:
-            log_cb(res.stderr.strip(), "error")
-            raise RuntimeError("foamDictionary failed: displacementLaplacianCoeffs")
-
-        _write_fv_files(sys_dir, log_cb)
-
-    # ── meshQualityControls ──────────────────────────────────────────────────────
-    log_cb("[generate] Writing meshQualityControls...", "info")
-    fd("meshQualityControls/maxNonOrtho",         str(dq.get("maxNonOrtho",         65)))
-    fd("meshQualityControls/maxBoundarySkewness", str(dq.get("maxBoundarySkewness", 20)))
-    fd("meshQualityControls/maxInternalSkewness", str(dq.get("maxInternalSkewness", 4)))
-    fd("meshQualityControls/maxConcave",          str(dq.get("maxConcave",          80)))
-    fd("meshQualityControls/minFlatness",         str(dq.get("minFlatness",         0.5)))
-    fd("meshQualityControls/minVol",              str(dq.get("minVol",              1e-13)))
-    fd("meshQualityControls/minTetQuality",       str(dq.get("minTetQuality",       -1e-30)))
-    fd("meshQualityControls/minArea",             str(dq.get("minArea",             -1)))
-    fd("meshQualityControls/minTwist",            str(dq.get("minTwist",            0.02)))
-    fd("meshQualityControls/minDeterminant",      str(dq.get("minDeterminant",      0.001)))
-    fd("meshQualityControls/minFaceWeight",       str(dq.get("minFaceWeight",       0.05)))
-    fd("meshQualityControls/minVolRatio",         str(dq.get("minVolRatio",         0.01)))
-    fd("meshQualityControls/minTriangleTwist",    str(dq.get("minTriangleTwist",    -1)))
-    fd("meshQualityControls/minEdgeLength",       str(dq.get("minEdgeLength",       -1)))
-    fd("meshQualityControls/relaxed",             '"{}"')
-    fd("meshQualityControls/relaxed/maxNonOrtho", str(dq.get("relaxed", {}).get("maxNonOrtho", 70)))
-    fd("meshQualityControls/nSmoothScale",        str(dq.get("nSmoothScale",        4)))
-    fd("meshQualityControls/errorReduction",      str(dq.get("errorReduction",      0.75)))
+    # ── Record the GUI inputs next to the case ──────────────────────────────────
+    _write_inputs_record(config, case_dir, defaults, log_cb)
 
     log_cb("[generate] snappyHexMeshDict written successfully.\n", "info")
 
@@ -632,24 +504,3 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
     log_cb(f"[snappyHexMesh] .foam updated: {foam_path}\n", "info")
     log_cb("[snappyHexMesh] Done.\n", "info")
     return True
-
-
-def _write_surface_patch_info(
-    fd,
-    base_entry: str,
-    surf_type: str,
-    cell_zone: bool,
-    zone_name: str,
-    stem: str,
-) -> None:
-    """Write patchInfo / faceZone / cellZone entries for a refinementSurfaces region."""
-    if surf_type == "boundary":
-        fd(f"{base_entry}/patchInfo",          '"{}"')
-        fd(f"{base_entry}/patchInfo/type",     "wall")
-        fd(f"{base_entry}/patchInfo/inGroups", '"(walls)"')
-    elif surf_type == "facezone":
-        fd(f"{base_entry}/faceZone", zone_name)
-        fd(f"{base_entry}/faceType", "internal")
-        if cell_zone:
-            fd(f"{base_entry}/cellZone",       zone_name)
-            fd(f"{base_entry}/cellZoneInside", "inside")

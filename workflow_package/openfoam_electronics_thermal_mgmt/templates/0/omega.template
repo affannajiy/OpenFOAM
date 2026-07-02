@@ -1,0 +1,85 @@
+{% macro render_omega_inlet(name, turb) %}
+{% if turb.mode == "intensity-and-length-scale" %}
+    {{ name }}
+    {
+        type            turbulentMixingLengthFrequencyInlet;
+        mixingLength    {{ turb.length_scale }};
+        value           $internalField;
+    }
+
+{% elif turb.mode == "dirichlet" %}
+    {{ name }}
+    {
+        type        inletOutlet;
+        inletValue  uniform {{ turb.omega }};
+        value       $internalField;
+    }
+
+{% endif %}
+{% endmacro %}
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2512                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "{{ location }}";
+    object      omega;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 0 -1 0 0 0 0];
+
+internalField   {{ internal_field }};
+
+boundaryField
+{
+    {% if patches or cht_patches %}
+    #includeEtc "caseDicts/setConstraintTypes"
+
+    {% for patch in cht_patches %}
+    {{ patch.name }}
+    {
+        type        omegaWallFunction;
+        blended     {{ patch.omega_blended }};
+        value       $internalField;
+    }
+
+    {% endfor %}
+    {% for patch in patches %}
+    {% if patch.bc_type == "velocity-inlet" %}
+    {% if patch.turbulence %}{{ render_omega_inlet(patch.name, patch.turbulence) }}{% endif %}
+    {% elif patch.bc_type == "total-pressure-inlet" or (patch.bc_type == "pressure-outlet" and not patch.prevent_backflow) %}
+    {% if patch.backflow_turbulence %}{{ render_omega_inlet(patch.name, patch.backflow_turbulence) }}{% endif %}
+    {% elif patch.bc_type == "pressure-outlet" and patch.prevent_backflow %}
+    {{ patch.name }}
+    {
+        type    zeroGradient;
+    }
+
+    {% elif patch.bc_type == "no-slip-wall" %}
+    {{ patch.name }}
+    {
+        type        omegaWallFunction;
+        blended     {{ patch.omega_blended }};
+        value       $internalField;
+    }
+
+    {% elif patch.bc_type == "slip-wall" %}
+    {{ patch.name }}
+    {
+        type    slip;
+    }
+
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+}
+
+// ************************************************************************* //

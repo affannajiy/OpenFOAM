@@ -98,6 +98,6 @@ echo.
 
 echo ============================================================
 echo  Build complete: app\OpenFOAM_UI.exe  [v%VERSION%]
-echo  Remember to include the app\icons\ folder in the ZIP.
+echo  Remember to ZIP the whole app\ folder: icons\, templates\, defaults.json.
 echo ============================================================
 pause

@@ -1,0 +1,55 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2512                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "{{ location }}";
+    object      {{ _field }};
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      {{ _dims }};
+
+internalField   {{ internal_field }};
+
+boundaryField
+{
+    {% if patches or cht_patches %}
+    #includeEtc "caseDicts/setConstraintTypes"
+
+    {% for patch in cht_patches %}
+    {{ patch.name }}
+    {
+        type    {{ patch[_wf_key] }};
+        value   uniform 1e-10;
+    }
+
+    {% endfor %}
+    {% for patch in patches %}
+    {% if patch.bc_type == "no-slip-wall" %}
+    {{ patch.name }}
+    {
+        type    {{ patch[_wf_key] }};
+        value   uniform 1e-10;
+    }
+
+    {% else %}
+    {{ patch.name }}
+    {
+        type    calculated;
+        value   uniform 1e-10;
+    }
+
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+}
+
+// ************************************************************************* //

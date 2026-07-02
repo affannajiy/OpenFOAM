@@ -48,7 +48,7 @@ qInstallMessageHandler(_qt_msg_handler)
 
 from ui_shared import (
     KS_RED, KS_BLACK, BG_APP, TEXT_PRIMARY, TEXT_MUTED, TEXT_WHITE,
-    LOG_CMD, BORDER,
+    LOG_CMD, BORDER, STYLE_TOOLTIP,
     find_paraview_exe,
 )
 from ui_log_drawer import LogDrawer
@@ -183,6 +183,7 @@ class MainWindow(QMainWindow):
             }}
             QPushButton:hover {{ color: {TEXT_WHITE}; }}
         """)
+        self._home_btn.setToolTip("Back to the landing page to switch project or utility.")
         self._home_btn.clicked.connect(self.show_landing)
         row.addWidget(self._home_btn)
 
@@ -232,6 +233,7 @@ class MainWindow(QMainWindow):
             btn = QPushButton(tab["label"])
             btn.setFixedHeight(32)
             btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(tab["subtitle"])
             btn.clicked.connect(lambda checked, idx=i: self._switch_tab(idx))
             self._tab_btns.append(btn)
             pills_layout.addWidget(btn)
@@ -258,6 +260,9 @@ class MainWindow(QMainWindow):
             }}
             QPushButton:hover {{ border-color: {LOG_CMD}; }}
         """)
+        self._paraview_btn.setToolTip(
+            "Open the current case in ParaView to inspect the mesh.\n"
+            "ParaView must be installed on Windows.")
         self._paraview_btn.clicked.connect(self._open_paraview)
         row.addWidget(self._paraview_btn)
 
@@ -544,6 +549,7 @@ class MainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    app.setStyleSheet(STYLE_TOOLTIP)
     win = MainWindow()
     win.show()
 

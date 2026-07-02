@@ -14,7 +14,7 @@ where WSL state could be the culprit, a [Restart WSL] button that runs
 running WSL programs).
 
 First-time setup is apt-only: Qt/XCB display libraries plus python3-pyqt5 /
-python3-numpy in a single apt transaction (no pip — fresh Ubuntu WSL images
+python3-numpy / python3-jinja2 in a single apt transaction (no pip — fresh Ubuntu WSL images
 ship without pip3, which used to make the old pip-based setup fail and loop).
 The setup script records a per-component status line into the sentinel file
 (`aptupdate=ok`, `packages=fail:100`, …) so the launcher can report exactly
@@ -47,7 +47,8 @@ _FOAM_BASHRC_2506 = '/usr/lib/openfoam/openfoam2506/etc/bashrc'
 _FOAM_BASHRC_2312 = '/usr/lib/openfoam/openfoam2312/etc/bashrc'
 
 # (import name, apt package) pairs — checked by import, installed via apt.
-_REQUIRED_PACKAGES = [('PyQt5', 'python3-pyqt5'), ('numpy', 'python3-numpy')]
+_REQUIRED_PACKAGES = [('PyQt5', 'python3-pyqt5'), ('numpy', 'python3-numpy'),
+                      ('jinja2', 'python3-jinja2')]
 
 # Distros that exist for tooling (Docker Desktop etc.) — never run the GUI there.
 _UTILITY_DISTROS = {
@@ -85,7 +86,7 @@ _FAIL_INFO = {
     ),
     'packages': (
         'System libraries / Python packages',
-        'sudo apt-get install -y python3-pyqt5 python3-numpy',
+        'sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2',
         'archive.ubuntu.com may be blocked by a corporate proxy — contact IT.',
     ),
     'openfoam': (
@@ -245,7 +246,7 @@ class _Splash:
         self._bar = tk.Frame(self._track_frame, bg=self._RED, height=6)
         self._bar.place(x=0, y=0, relheight=1, width=0)
 
-        tk.Label(body, text='v1.0.4', font=('Segoe UI', 8),
+        tk.Label(body, text='v1.0.5', font=('Segoe UI', 8),
                  fg='#444444', bg=self._BG).pack(anchor='e', pady=(10, 0))
 
     def set_status(self, text):
@@ -954,7 +955,7 @@ def _do_checks(splash, consent_given, install_attempts):
                 + '\n'.join(still) + '\n\n'
                 'Open a WSL terminal and install them manually:\n'
                 '  sudo apt-get update\n'
-                '  sudo apt-get install -y python3-pyqt5 python3-numpy\n'
+                '  sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2\n'
                 '  sudo apt-get install -y openfoam2506   # if OpenFOAM '
                 'is listed above\n\n'
                 'Then run this launcher again.'
@@ -1207,6 +1208,12 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
+
+
+
 
 
 

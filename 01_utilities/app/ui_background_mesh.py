@@ -230,10 +230,15 @@ class BackgroundMeshWidget(QWidget):
         self._stl_edit = QLineEdit()
         self._stl_edit.setPlaceholderText("constant/.../geometry.stl")
         self._stl_edit.setStyleSheet(STYLE_ENTRY)
+        self._stl_edit.setToolTip(
+            "STL that sets the domain size. Its bounding box\n"
+            "becomes the background block. Case root is auto-detected\n"
+            "from constant/ in the path.")
         self._stl_edit.textChanged.connect(self._update_overwrite_banner)
 
         browse_btn = QPushButton("Browse…")
         browse_btn.setStyleSheet(STYLE_BTN_SMALL_RED)
+        browse_btn.setToolTip("Pick the STL file from disk.")
         browse_btn.clicked.connect(self._browse)
 
         stl_row.addWidget(self._stl_edit)
@@ -264,6 +269,10 @@ class BackgroundMeshWidget(QWidget):
             edit = QLineEdit()
             edit.setPlaceholderText("0.05")
             edit.setStyleSheet(STYLE_ENTRY)
+            edit.setToolTip(
+                f"Background cell size along {name[1].upper()} (mm).\n"
+                "Smaller = finer base mesh, more cells.\n"
+                "Keep DX, DY, DZ equal for cube-shaped cells.")
             err = QLabel("")
             err.setStyleSheet(f"color: {KS_RED}; font-size: 12px; background: transparent;")
             err.setVisible(False)
@@ -299,10 +308,15 @@ class BackgroundMeshWidget(QWidget):
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setStyleSheet(STYLE_BTN_GHOST)
+        cancel_btn.setToolTip("Stop a running job and clear all inputs.")
         cancel_btn.clicked.connect(self._cancel)
 
         self._gen_btn = QPushButton("Generate Background Mesh →")
         self._gen_btn.setStyleSheet(STYLE_BTN_PRIMARY)
+        self._gen_btn.setToolTip(
+            "Runs surfaceCheck, writes blockMeshDict, runs blockMesh.\n"
+            "Creates the background block the mesh is carved from.\n"
+            "Do this before the SnappyHexMesh tab.")
         self._gen_btn.clicked.connect(self._run)
 
         action_row.addWidget(cancel_btn)
