@@ -260,33 +260,11 @@ def _build_render_context(config: dict, case_dir: str, defaults: dict, log_cb) -
             surface_refinements.append(surf)
 
         if vol_dir in ("inside", "outside"):
-            if surf_type == "boundary":
-                # An outer shell defines the domain limit. A refinement region
-                # here is at best a no-op (inside) and at worst refines the
-                # discarded padding shell, producing a mesh that is finer at the
-                # domain edges than at the geometry surface — a blobby result.
-                # Vijay's reference never puts a region on the boundary shell.
-                log_cb(
-                    f"[warn] {fname}: Vol Direction ignored on a Boundary (outer "
-                    "shell) — a refinement region on the domain limit does nothing "
-                    "useful (Inside) or refines the discarded padding into a blobby "
-                    "mesh (Outside). Skipped.", "warn")
-            elif vol_dir == "outside":
-                log_cb(
-                    f"[warn] {fname}: vol_direction=outside refines cells OUTSIDE this "
-                    "surface. For an outer domain box this is almost certainly wrong — "
-                    "use vol_direction=None.", "warn")
-                volume_refinements.append({
-                    "name": mesh_name,
-                    "mode": vol_dir,
-                    "level": finfo.get("vol_level", 1),
-                })
-            else:
-                volume_refinements.append({
-                    "name": mesh_name,
-                    "mode": vol_dir,
-                    "level": finfo.get("vol_level", 1),
-                })
+            volume_refinements.append({
+                "name": mesh_name,
+                "mode": vol_dir,
+                "level": finfo.get("vol_level", 1),
+            })
         elif surf_type == "facezone" and cell_zone:
             log_cb(
                 f"[info] {fname}: tip — Vol Dir = Inside adds refinement inside this "
@@ -365,8 +343,7 @@ def _write_inputs_record(config: dict, case_dir: str, defaults: dict, log_cb) ->
             if surf_type == "facezone" and finfo.get("cell_zone", False):
                 entry["cellZoneInside"] = "inside"
             surfaces[stem] = entry
-        if (finfo.get("vol_direction", "none").lower() in ("inside", "outside")
-                and surf_type != "boundary"):
+        if finfo.get("vol_direction", "none").lower() in ("inside", "outside"):
             vol_selected.append(stem)
             vol_regions[stem] = {
                 "mode": finfo["vol_direction"].lower(),

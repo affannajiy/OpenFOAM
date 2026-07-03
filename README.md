@@ -110,10 +110,11 @@ Needs a display — automatic via WSLg on Windows 11; start an X server (VcXsrv/
 
 ### Landing Page
 
-- **New project** — enter name/location; creates `constant/triSurface/`, `system/`, `0/` and stub dicts.
-- **Open existing** — browse or pick from recents (max 10). Validates `system/controlDict` exists.
+- **New project** — enter name/location; creates `constant/triSurface/`, `system/`, `0/` and stub dicts. Name is auto-cleaned as you type (spaces/punctuation → `_`); `C:\…` locations are auto-converted to WSL `/mnt/…`.
+- **Template** — *Empty case*, or *From STL* (pick one or more `.stl`/`.obj` files, copied into `constant/triSurface/`).
+- **Open existing** — browse or pick from recents (max 10). Validates `system/controlDict` exists. Removing a recent entry (×) asks for confirmation first — the project folder itself is never deleted.
 
-Pick a utility, click **Continue →**. **← Home** returns anytime.
+Pick a utility, then click the footer **Open →** (enabled once a project and utility are both chosen; double-click a utility card also opens). **← Home** returns anytime.
 
 ### Tab 1 — Background Mesh
 
@@ -124,6 +125,8 @@ Generates `system/blockMeshDict` from an STL bounding box and runs `blockMesh`.
 3. **Generate Background Mesh** — runs `surfaceCheck` → writes dict → runs `blockMesh` → creates `.foam`.
 4. **Cancel** stops the job and clears inputs.
 
+On success a green banner offers **Continue to Snappy Hex Mesh →**; on failure a red banner shows a plain-language cause and fix (see [Error messages](#error-messages)).
+
 ### Tab 2 — SnappyHexMesh Dict
 
 Renders `system/snappyHexMeshDict` in one pass, records inputs to `snappy_inputs.json`, runs `snappyHexMesh`.
@@ -132,17 +135,21 @@ Renders `system/snappyHexMeshDict` in one pass, records inputs to `snappy_inputs
 
 | Section | Content |
 |---------|---------|
-| **01 Geometry** | File table (`.stl`/`.obj` under `constant/`): Surface Type, refinement min/max, Vol Dir + level. Plus standard shapes (Box/Cylinder/Sphere). **Smart defaults**: largest file → Boundary; rest → FaceZone+CellZone+Inside. **Refresh file list** rescans and preserves your settings |
+| **01 Geometry** | File table (`.stl`/`.obj` under `constant/`): **Use** checkbox (untick to leave a file out of the mesh entirely — it stays on disk), Surface Type, refinement Min/Max (independent, default 0/0), Vol Dir + Vol Level (independent, default 0). Plus standard shapes (Box/Cylinder/Sphere). **Smart defaults**: largest file → Boundary; rest → FaceZone+CellZone+Inside. **Refresh file list** rescans and preserves your settings |
 | **02 Castellation** | Geometry unit, nCellsBetweenLevels, location-in-mesh X/Y/Z; **Suggest point** places it 60% from the largest boundary STL's centroid toward its max corner — verify it lands in fluid, outside any inner solid |
 | **03 Snap controls** | Implicit feature snapping always on — no `.eMesh`/`surfaceFeatureExtract` step |
 | **04 Layer addition** | Enable boundary layers; per-patch nSurfaceLayers, auto-populated from Section 01 |
-| **05 Generate & Run** | Renders the dict, writes `snappy_inputs.json`, streams the solver log, cleans up numeric time dirs, refreshes `.foam` |
+| **05 Generate & Run** | **Pre-flight check** (live ✓/✗ list: background mesh exists, a Boundary file is set, FaceZone files have Cell Zone, location-in-mesh set), then renders the dict, writes `snappy_inputs.json`, streams the solver log, cleans up numeric time dirs, refreshes `.foam` |
 
 > Every input has a hover tooltip explaining valid choices and pitfalls — hover column headers for column-level help. Tooltips share one look across the whole app (white background, black text, red rounded border).
 
 ### Output Log
 
-Bottom drawer, colour-coded tags (`error` red, `warn` amber, `info` blue, `cmd` grey). Drag to resize, click chevron to collapse.
+Bottom drawer, colour-coded tags (`error` red, `warn` amber, `info` blue, `cmd` grey). Drag to resize, click chevron to collapse. During a snappyHexMesh run the header shows a live **Step X/3** label (Castellating → Snapping → Adding layers) parsed from the solver's own output.
+
+### Error messages
+
+When a run fails, a red banner above the log translates the raw OpenFOAM output into a plain-language cause and fix — covering common cases like a bad location-in-mesh point, an empty mesh (`selected 0 cells`), a missing background mesh, a non-watertight STL, or a missing `jinja2`. The full log stays below for detail.
 
 ---
 
@@ -262,8 +269,9 @@ C:\OpenFOAM\
 
 **Python application (WSL)**:
 - `openfoam_ui.py` — `QMainWindow` shell: tabs, header, LogDrawer, ParaView launcher.
-- `ui_landing.py` — new/open project page; recents in `~/.openfoam_ui_recents.json`.
-- `ui_background_mesh.py` — Tab 1; `_BgMeshWorker(QThread)` runs `surfaceCheck` → `blockMesh`.
+- `ui_shared.py` — colour/style tokens, custom widgets (`PlusMinusSpinBox`, `ChevronComboBox`), `MessageBanner` (shared red-error / green-success strip), and `scan_log_for_fix()` (maps raw OpenFOAM log signatures → plain fixes).
+- `ui_landing.py` — new/open project page; recents in `~/.openfoam_ui_recents.json`; live name-sanitize, `/mnt` path conversion, From-STL template, gated footer **Open →**.
+- `ui_background_mesh.py` — Tab 1; `_BgMeshWorker(QThread)` runs `surfaceCheck` → `blockMesh`. Emits `request_snappy` from its success banner to hand off to Tab 2.
 - `ui_snappy_hex.py` — Tab 2; `_SnappyWorker(QThread)` calls `snappy_generator.generate_and_run()`.
 - `snappy_generator.py` — renders `snappyHexMeshDict` from `templates/snappyHexMeshDict.template` (Jinja2), records inputs to `snappy_inputs.json`, streams `snappyHexMesh -overwrite`. Inner solids become faceZone + cellZone so cells are kept and named; keep-point nudged by 1e-6 off cell faces. All subprocess calls use `cwd=case_dir`, never `os.chdir()`.
 

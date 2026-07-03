@@ -159,6 +159,13 @@ class LogDrawer(QWidget):
             " font-weight: bold; border: none; background: transparent;")
         hdr_row.addWidget(log_lbl)
 
+        self._step_lbl = QLabel("")
+        self._step_lbl.setStyleSheet(
+            "color: #F59E0B; font-family: Consolas; font-size: 12px;"
+            " border: none; background: transparent;")
+        self._step_lbl.setVisible(False)
+        hdr_row.addWidget(self._step_lbl)
+
         self._count_lbl = QLabel("0 lines")
         self._count_lbl.setStyleSheet(
             f"color: {LOG_CMD}; font-family: Consolas; font-size: 12px;"
@@ -241,6 +248,11 @@ class LogDrawer(QWidget):
         tag : one of "error", "warn", "info", "cmd", or "" (default colour)
         """
         self._append_sig.emit(message, tag)
+
+    def set_step(self, text: str) -> None:
+        """Show/update the short 'Step X/3: …' label next to OUTPUT LOG. Empty text hides it."""
+        self._step_lbl.setText(text)
+        self._step_lbl.setVisible(bool(text))
 
     def set_running(self, running: bool) -> None:
         """

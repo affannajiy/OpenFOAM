@@ -10,11 +10,12 @@ clicks Continue; MainWindow connects this signal to show_utility().
 import os
 import re
 import json
+import shutil
 from typing import Optional
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QLineEdit, QComboBox, QScrollArea, QSizePolicy,
+    QFrame, QLineEdit, QScrollArea, QSizePolicy,
     QFileDialog, QStackedWidget, QMessageBox,
 )
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -25,8 +26,17 @@ from ui_shared import (
     BORDER, BORDER_SOFT,
     TEXT_PRIMARY, TEXT_MUTED,
     STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_BTN_SMALL_RED, STYLE_BTN_GHOST,
-    find_paraview_exe, build_card,
+    STYLE_BTN_PRIMARY,
+    find_paraview_exe, build_card, ChevronComboBox, to_wsl_path,
 )
+
+
+def _sanitize_name(raw: str) -> str:
+    """Replace characters that make bad folder names (spaces, punctuation) with
+    underscores, so the project name is always a safe directory name. Kept
+    permissive — letters, digits, dot, dash, underscore survive — so the user
+    can still type freely while it's cleaned live."""
+    return re.sub(r'[^A-Za-z0-9._-]+', '_', raw)
 
 # ── OpenFOAM stub templates ───────────────────────────────────────────────────
 
@@ -138,6 +148,7 @@ class LandingWidget(QWidget):
         self._mode      = "new"
         self._util_id: Optional[int] = None
         self._open_path: Optional[str] = None
+        self._stl_files: list = []   # STL/OBJ paths picked for the "From STL" template
 
         self.setStyleSheet(f"background: {BG_APP};")
 
@@ -173,7 +184,24 @@ class LandingWidget(QWidget):
         self._build_columns(content)
         content.addStretch()
 
+        # ── Footer — full-width Open action, pinned below the scroll area ────
+        footer = QWidget()
+        footer.setStyleSheet(f"background: {BG_CARD}; border-top: 1px solid {BORDER};")
+        footer_v = QVBoxLayout(footer)
+        footer_v.setContentsMargins(24, 12, 24, 12)
+        footer_v.setSpacing(0)
+        self._open_btn = QPushButton("Open →")
+        self._open_btn.setCursor(Qt.PointingHandCursor)
+        self._open_btn.setStyleSheet(STYLE_BTN_PRIMARY)
+        self._open_btn.setToolTip(
+            "Create (or open) the project and enter the selected utility.\n"
+            "Enabled once a project and a utility are both chosen.")
+        self._open_btn.clicked.connect(self._on_continue)
+        footer_v.addWidget(self._open_btn)
+        outer.addWidget(footer)
+
         self._update_preview()
+        self._update_continue_state()
 
     # ── Hero strip ────────────────────────────────────────────────────────────
 
@@ -331,7 +359,10 @@ class LandingWidget(QWidget):
         vbox.addWidget(self._field_label("P R O J E C T   N A M E"))
         self._name_edit = QLineEdit("my_case")
         self._name_edit.setStyleSheet(STYLE_ENTRY)
-        self._name_edit.setToolTip("Folder name for the new case. Avoid spaces.")
+        self._name_edit.setToolTip(
+            "Folder name for the new case. Spaces and odd characters are\n"
+            "replaced with '_' as you type so it's always a valid folder name.")
+        self._name_edit.textEdited.connect(self._on_name_edited)
         self._name_edit.textChanged.connect(self._update_preview)
         self._name_edit.textChanged.connect(self._update_continue_state)
         vbox.addWidget(self._name_edit)
@@ -346,6 +377,7 @@ class LandingWidget(QWidget):
             "from WSL under /mnt/ (e.g. C:\\OpenFOAM).")
         self._loc_edit.textChanged.connect(self._update_preview)
         self._loc_edit.textChanged.connect(self._update_continue_state)
+        self._loc_edit.textChanged.connect(self._validate_location_live)
         browse_loc = QPushButton("Browse…")
         browse_loc.setFixedWidth(90)
         browse_loc.setCursor(Qt.PointingHandCursor)
@@ -357,19 +389,43 @@ class LandingWidget(QWidget):
         vbox.addLayout(loc_row)
 
         vbox.addWidget(self._field_label("T E M P L A T E"))
-        self._template_combo = QComboBox()
+        self._template_combo = ChevronComboBox()
         self._template_combo.setStyleSheet(STYLE_COMBO)
         self._template_combo.setToolTip(
             "What to put in the new case:\n"
             "Empty     = folders + stub dicts only\n"
-            "From STL  = also fill triSurface/ from an STL\n"
-            "Copy      = clone an existing case")
+            "From STL  = also copy chosen STL/OBJ files into constant/triSurface/")
         self._template_combo.addItems([
             "Empty case (constant/, system/, 0/)",
-            "From STL — auto-populate triSurface/",
-            "Copy from existing case…",
+            "From STL — copy files into triSurface/",
         ])
+        self._template_combo.currentIndexChanged.connect(self._on_template_changed)
         vbox.addWidget(self._template_combo)
+
+        # STL picker row — visible only for the "From STL" template.
+        self._stl_pick_w = QWidget()
+        self._stl_pick_w.setStyleSheet(f"background: {BG_CARD};")
+        stl_v = QVBoxLayout(self._stl_pick_w)
+        stl_v.setContentsMargins(0, 0, 0, 0)
+        stl_v.setSpacing(6)
+        stl_row = QHBoxLayout()
+        stl_row.setSpacing(8)
+        pick_btn = QPushButton("Choose STL/OBJ files…")
+        pick_btn.setCursor(Qt.PointingHandCursor)
+        pick_btn.setStyleSheet(STYLE_BTN_SMALL_RED)
+        pick_btn.setToolTip("Pick one or more geometry files to copy into constant/triSurface/.")
+        pick_btn.clicked.connect(self._browse_stls)
+        stl_row.addWidget(pick_btn)
+        stl_row.addStretch()
+        stl_v.addLayout(stl_row)
+        self._stl_files_lbl = QLabel("No files chosen")
+        self._stl_files_lbl.setStyleSheet(
+            f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 10px;"
+            " background: transparent;")
+        self._stl_files_lbl.setWordWrap(True)
+        stl_v.addWidget(self._stl_files_lbl)
+        self._stl_pick_w.setVisible(False)
+        vbox.addWidget(self._stl_pick_w)
 
         vbox.addWidget(self._field_label("W I L L   C R E A T E :"))
         preview_frame = QFrame()
@@ -560,6 +616,13 @@ class LandingWidget(QWidget):
         self._update_continue_state()
 
     def _on_recent_delete(self, path: str):
+        reply = QMessageBox.question(
+            self, "Remove recent project?",
+            f"Remove this from your recents list?\n\n{path}\n\n"
+            "This does not delete the folder itself.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
         self._recents = [e for e in self._recents if e.get("path") != path]
         _save_recents(self._recents)
         if self._open_path == path:
@@ -578,7 +641,7 @@ class LandingWidget(QWidget):
 
         for uid, title, chip, desc in [
             (0, "Background Mesh",    "~5–30s",  "Generate blockMesh from STL bounding box"),
-            (1, "SnappyHexMesh Dict", "~2–20m",  "Build snappyHexMeshDict and run mesh"),
+            (1, "Snappy Hex Mesh", "~2–20m",  "Build snappyHexMeshDict and run mesh"),
         ]:
             card = self._make_util_selector(uid, title, chip, desc)
             self._util_frames.append(card)
@@ -665,10 +728,14 @@ class LandingWidget(QWidget):
             " background: transparent; border: none;")
         left.addWidget(desc_lbl)
 
-        arrow = QLabel("→")
+        # Not an arrow — a plain instruction, so the user knows the card is
+        # opened by double-clicking (a lone → read as a clickable link/button).
+        arrow = QLabel("Double-click\nto open")
         arrow.setObjectName(f"util_arrow_{uid}")
+        arrow.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         arrow.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 14px; background: transparent; border: none;")
+            f"color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 10px;"
+            " font-style: italic; background: transparent; border: none;")
 
         row.addLayout(left, 1)
         row.addWidget(arrow)
@@ -708,8 +775,8 @@ class LandingWidget(QWidget):
             if arrow:
                 color = KS_RED if selected else TEXT_MUTED
                 arrow.setStyleSheet(
-                    f"color: {color}; font-size: 14px; background: transparent;"
-                    " border: none;")
+                    f"color: {color}; font-family: 'Segoe UI'; font-size: 10px;"
+                    " font-style: italic; background: transparent; border: none;")
         self._update_continue_state()
 
     def _on_util_double_click(self, uid: int):
@@ -804,20 +871,92 @@ class LandingWidget(QWidget):
             " background: transparent;")
         self._update_continue_state()
 
+    def _on_name_edited(self, raw: str):
+        """Live-sanitize the project name as the user types (spaces/punctuation →
+        underscore), keeping the cursor roughly in place."""
+        clean = _sanitize_name(raw)
+        if clean != raw:
+            cursor = self._name_edit.cursorPosition()
+            self._name_edit.blockSignals(True)
+            self._name_edit.setText(clean)
+            self._name_edit.blockSignals(False)
+            self._name_edit.setCursorPosition(
+                max(0, cursor - (len(raw) - len(clean))))
+            # blockSignals suppressed the textChanged handlers — run them manually.
+            self._update_preview()
+            self._update_continue_state()
+
+    def _validate_location_live(self, _text: str = ""):
+        """Red-underline the Location field as soon as it types a path WSL can't
+        reach — Windows drive letters (C:\\...) are auto-converted, so only
+        reject paths that don't resolve to a leading '/' after conversion."""
+        raw = self._loc_edit.text().strip()
+        reachable = bool(raw) and to_wsl_path(os.path.expanduser(raw)).startswith("/")
+        if raw and not reachable:
+            self._loc_edit.setStyleSheet(STYLE_ENTRY.replace(
+                f"border: 1px solid {BORDER};", f"border: 1.5px solid {KS_RED};"))
+        else:
+            self._loc_edit.setStyleSheet(STYLE_ENTRY)
+
+    def _on_template_changed(self, _idx: int):
+        """Show the STL picker row only for the 'From STL' template."""
+        from_stl = (self._template_combo.currentIndex() == 1)
+        self._stl_pick_w.setVisible(from_stl)
+        self._update_continue_state()
+
+    def _browse_stls(self):
+        """Pick one or more STL/OBJ files to seed constant/triSurface/."""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select STL/OBJ files", os.path.expanduser("~"),
+            "Geometry files (*.stl *.obj);;All files (*.*)")
+        if not paths:
+            return
+        self._stl_files = [to_wsl_path(p) for p in paths]
+        names = ", ".join(os.path.basename(p) for p in self._stl_files)
+        self._stl_files_lbl.setText(f"{len(self._stl_files)} file(s): {names}")
+        self._stl_files_lbl.setStyleSheet(
+            f"color: {TEXT_PRIMARY}; font-family: Consolas; font-size: 10px;"
+            " background: transparent;")
+        self._update_continue_state()
+
     def _update_continue_state(self):
-        # Continue is always enabled — input validation runs in _on_continue,
-        # not here.  This hook exists so subclasses or future revisions can
-        # enable/disable the button reactively without changing _on_continue.
-        pass
+        """Enable the footer Open button only when a project and a utility are
+        both validly chosen; relabel it to prompt the user otherwise."""
+        if not hasattr(self, "_open_btn"):
+            return
+        ok = self._util_id is not None
+        if ok:
+            if self._mode == "new":
+                ok = (bool(self._name_edit.text().strip())
+                      and bool(self._loc_edit.text().strip()))
+            else:
+                ok = bool(self._open_path)
+        self._open_btn.setEnabled(ok)
+        self._open_btn.setText(
+            "Open →" if ok else "Select a project and a utility to continue")
 
     # ── Continue action ───────────────────────────────────────────────────────
 
     def _on_continue(self):
+        if self._util_id is None:
+            QMessageBox.warning(
+                self, "No utility selected",
+                "Please select a utility (Background Mesh or Snappy Hex Mesh).")
+            return
         if self._mode == "new":
-            name     = self._name_edit.text().strip()
-            location = os.path.expanduser(self._loc_edit.text().strip())
+            name     = _sanitize_name(self._name_edit.text().strip())
+            # Convert Windows drive paths (C:\...) to their WSL /mnt/ form so the
+            # case is reachable from the OpenFOAM tools that run inside WSL.
+            location = to_wsl_path(os.path.expanduser(self._loc_edit.text().strip()))
             if not name:
                 QMessageBox.warning(self, "Missing name", "Please enter a project name.")
+                return
+            if not location.startswith("/"):
+                QMessageBox.warning(
+                    self, "Location not reachable from WSL",
+                    "The location must be a WSL path (starts with /) or a Windows\n"
+                    "drive path like C:\\OpenFOAM (auto-converted to /mnt/c/OpenFOAM).\n"
+                    f"Got: {location}")
                 return
             case_dir = os.path.join(location, name)
             try:
@@ -828,6 +967,19 @@ class LandingWidget(QWidget):
                 _write_stub(os.path.join(case_dir, "system", "fvSchemes"),   _FV_SCHEMES)
                 _write_stub(os.path.join(case_dir, "system", "fvSolution"),  _FV_SOLUTION)
                 _write_stub(os.path.join(case_dir, f"{name}.foam"),           "")
+                # "From STL" template: copy the chosen geometry into triSurface/.
+                if self._template_combo.currentIndex() == 1 and self._stl_files:
+                    tri_dir = os.path.join(case_dir, "constant", "triSurface")
+                    copied = 0
+                    for src in self._stl_files:
+                        if os.path.isfile(src):
+                            shutil.copy2(src, os.path.join(tri_dir, os.path.basename(src)))
+                            copied += 1
+                    if copied == 0:
+                        QMessageBox.warning(
+                            self, "No files copied",
+                            "None of the chosen STL/OBJ files could be found on disk.\n"
+                            "The case was still created — add geometry manually if needed.")
             except Exception as exc:
                 QMessageBox.critical(self, "Error creating case", str(exc))
                 return

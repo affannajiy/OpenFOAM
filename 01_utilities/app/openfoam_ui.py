@@ -67,9 +67,9 @@ _TABS = [
         "subtitle": "Generate blockMeshDict from STL bounding box and run blockMesh.",
     },
     {
-        "label":    "SnappyHexMesh Dict",
+        "label":    "Snappy Hex Mesh",
         "eyebrow":  "STEP 2 OF 2",
-        "title":    "SnappyHexMesh Dict",
+        "title":    "Snappy Hex Mesh",
         "subtitle": "Configure and generate snappyHexMeshDict, then run snappyHexMesh.",
     },
 ]
@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("OpenFOAM GUI")
-        self.resize(1100, 760)
+        self.resize(1280, 720)   # 720p (HD) default, centered by _center()
         self._tab_idx = 0
 
         central = QWidget()
@@ -259,10 +259,12 @@ class MainWindow(QMainWindow):
                 font-size: 12px;
             }}
             QPushButton:hover {{ border-color: {LOG_CMD}; }}
+            QPushButton:disabled {{ color: #6B7280; border-color: #374151; }}
         """)
         self._paraview_btn.setToolTip(
             "Open the current case in ParaView to inspect the mesh.\n"
             "ParaView must be installed on Windows.")
+        self._paraview_btn.setEnabled(False)
         self._paraview_btn.clicked.connect(self._open_paraview)
         row.addWidget(self._paraview_btn)
 
@@ -338,6 +340,7 @@ class MainWindow(QMainWindow):
         self._stack.setMinimumHeight(0)   # allow the log drawer to push upward
         self._bg_widget     = BackgroundMeshWidget(self._log)
         self._snappy_widget = SnappyHexWidget(self._log)
+        self._bg_widget.request_snappy.connect(lambda: self._switch_tab(1))
         self._stack.addWidget(self._bg_widget)
         self._stack.addWidget(self._snappy_widget)
         root.addWidget(self._stack, 1)
@@ -478,6 +481,14 @@ class MainWindow(QMainWindow):
         self._cwd_lbl.setText(basename)   # header bar: short name only
         self._hero_cwd.setText(cwd)       # hero strip: full path badge
         self._sb_cwd.setText(cwd)         # status bar: full path (right-aligned)
+
+        has_mesh = os.path.isfile(os.path.join(cwd, "constant", "polyMesh", "points"))
+        self._paraview_btn.setEnabled(has_mesh)
+        self._paraview_btn.setToolTip(
+            "Open the current case in ParaView to inspect the mesh.\n"
+            "ParaView must be installed on Windows."
+            if has_mesh else
+            "No mesh yet — run Background Mesh (and Snappy Hex Mesh) first.")
 
     # ── Open ParaView ──────────────────────────────────────────────────────────
 

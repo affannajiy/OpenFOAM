@@ -30,6 +30,7 @@ from ui_shared import (
     STYLE_BTN_PRIMARY, STYLE_BTN_GHOST, STYLE_BTN_SMALL_GHOST, STYLE_BTN_SMALL_RED,
     STYLE_ENTRY, STYLE_SCROLL,
     build_card, positive_float, run_of_command, to_wsl_path,
+    MessageBanner, scan_log_for_fix,
 )
 
 try:
@@ -187,10 +188,16 @@ class BackgroundMeshWidget(QWidget):
     row.  All heavy work is delegated to _BgMeshWorker.
     """
 
+    # Emitted when the user clicks "Continue to Snappy Hex Mesh" on the success
+    # banner; MainWindow connects this to switch to the Snappy tab.
+    request_snappy = pyqtSignal()
+
     def __init__(self, log_drawer, parent=None):
         super().__init__(parent)
-        self._log     = log_drawer   # LogDrawer instance shared with other tabs
-        self._worker  = None         # holds the active QThread, or None
+        self._log      = log_drawer  # LogDrawer instance shared with other tabs
+        self._worker   = None        # holds the active QThread, or None
+        self._run_log  = []          # collected output lines for error scanning
+        self._last_color = ""        # last status colour reported by the worker
         self.setStyleSheet(f"background: {BG_APP};")
         self._build()
 
@@ -301,6 +308,10 @@ class BackgroundMeshWidget(QWidget):
         self._overwrite_banner.setWordWrap(True)
         self._overwrite_banner.setVisible(False)
         layout.addWidget(self._overwrite_banner)
+
+        # ── Result banner (red error+fix / green success+handoff) ─────────────
+        self._msg_banner = MessageBanner()
+        layout.addWidget(self._msg_banner)
 
         # ── Action row ────────────────────────────────────────────────────────
         action_row = QHBoxLayout()
@@ -476,13 +487,24 @@ class BackgroundMeshWidget(QWidget):
         self._log.set_running(True)
         self._log.write("\n[Background Mesh] Starting…\n", "info")
 
+        # Reset per-run state for the result banner.
+        self._run_log = []
+        self._last_color = ""
+        self._msg_banner.hide_msg()
+
         self._worker = _BgMeshWorker(stl, dx, dy, dz, cwd)
         self._worker.log_line.connect(self._log.write)
+        self._worker.log_line.connect(self._collect_log)
         self._worker.status_changed.connect(self._on_worker_status)
         self._worker.finished.connect(self._on_worker_done)
         self._worker.start()
 
+    def _collect_log(self, line: str, _tag: str = ""):
+        """Accumulate worker output so a failed run can be scanned for a plain fix."""
+        self._run_log.append(line)
+
     def _on_worker_status(self, text: str, color: str):
+        self._last_color = color
         self._log.status_changed.emit(text, color)
 
     def _on_worker_done(self):
@@ -490,8 +512,32 @@ class BackgroundMeshWidget(QWidget):
         self._gen_btn.setEnabled(True)
         self._update_overwrite_banner()
 
+        if self._last_color == "#22C55E":
+            # Success — offer the next step.
+            self._msg_banner.show_success(
+                "Background mesh created. Next: build the mesh around your geometry.",
+                "Continue to Snappy Hex Mesh →",
+                self.request_snappy.emit)
+        elif self._last_color == "#EF4444":
+            fix = scan_log_for_fix("".join(self._run_log))
+            self._msg_banner.show_error(
+                fix or "Background mesh failed. Open the log below and read the last "
+                "few red lines to see what went wrong.")
+
     def _cancel(self):
-        if self._worker and self._worker.isRunning():
+        running = bool(self._worker and self._worker.isRunning())
+        if not running:
+            has_input = bool(
+                self._stl_edit.text().strip()
+                or any(e.text().strip() for e in self._d_edits.values()))
+            if has_input:
+                reply = QMessageBox.question(
+                    self, "Clear inputs?",
+                    "This clears the STL path and grid sizes you entered. Continue?",
+                    QMessageBox.Yes | QMessageBox.No)
+                if reply != QMessageBox.Yes:
+                    return
+        if running:
             self._worker.terminate()
             self._log.write("[Background Mesh] Cancelled.\n", "warn")
             self._log.set_running(False)
@@ -504,3 +550,4 @@ class BackgroundMeshWidget(QWidget):
             e.setVisible(False)
         self._stl_err.setVisible(False)
         self._overwrite_banner.setVisible(False)
+        self._msg_banner.hide_msg()
