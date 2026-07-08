@@ -1,0 +1,64 @@
+{
+    "_version": "1.0",
+
+    "settings": {
+        "geometryUnit": "mm",
+        "extractRefinementFromNames": true,
+        "mergeTolerance": 1e-6
+    },
+
+    "geometry": {
+        "files": "geom_files.txt" 
+    },
+
+    "backgroundMesh": {
+        "referenceGeometry": "outer-domain.stl",
+        "baseGrid": 8.0
+    },
+
+    "surfaceHandling": {
+        "selectedParts": [ "outer-domain" ], 
+        "surfaces": {
+            "__defaults__": {
+                "type": "boundary",
+                "refinementLevels": [0, 0]
+            },
+            "outer-domain": {
+                "type": "boundary",
+                "refinementLevels": [0, 0],
+                "regions": {
+                    "Inflow": {
+                        "refinementLevels": [0, 1]
+                    },
+                    "Outflow": {
+                        "refinementLevels": [0, 1]
+                    },
+                    "all_walls": {
+                        "refinementLevels": [0, 1]
+                    }
+                }
+            }
+        }
+    },
+
+    "volumeRefinement": {
+        "selectedParts": [ "outer-domain" ],
+        "regions": {
+            "__defaults__": {
+                "mode": "inside",
+                "level": 0
+            },
+            "outer-domain": {
+                "level": 0
+            }
+        }
+    },
+
+    "castellatedMeshControls": {
+        "locationInMesh": [120, 70, 320]
+    },
+
+    "autoRefinementParams": {
+        "surfaceResolutionCells": 3
+    }
+}

@@ -1,0 +1,24 @@
+FoamFile
+{
+    version         2;
+    format          ascii;
+    class           dictionary;
+    object          fvSchemes;
+}
+
+divSchemes
+{
+
+}
+
+gradSchemes
+{
+    grad(cellDisplacement)  cellLimited leastSquares 1;
+
+}
+
+laplacianSchemes
+{
+    laplacian(diffusivity,cellDisplacement) Gauss linear limited corrected 0.5;
+}
+

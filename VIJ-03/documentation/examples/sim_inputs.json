@@ -1,0 +1,405 @@
+{
+    "simulation": {
+        "type": "transient",
+        "solver_name": "chtMultiRegionFoam",
+        "end_time": 2000,
+        "write_interval": 100,
+        "num_cores": 16,
+        "write_format": "binary",
+        "write_precision": 6,
+        "time_precision": 6,
+        "delta_t": 1.0,
+        "adjust_timestep": false
+    },
+    "regions": {
+        "fluids": ["domain_fluid"],
+        "solids": ["domain_solid"]
+    },
+    "region_parts": {
+        "domain_fluid": {
+            "boundaries": [
+                "Inflow",
+                "Outflow",
+                "all_walls",
+                "fan-block-new",
+                "domain_fluid_to_domain_solid",
+                "In1",
+                "leftIn",
+                "leftOut"
+            ],
+            "cellZones": ["fluid_zone_A"],
+            "faceZones": ["fan-baffle"]
+        },
+        "domain_solid": {
+            "boundaries": [
+                "domain_solid_to_domain_fluid",
+                "external_walls"
+            ],
+            "cellZones": [
+                "zone-1",
+                "zone-2",
+                "zone-3",
+                "zone-4",
+                "zone-5"
+            ],
+            "faceZones": []
+        },
+        "cht_interfaces": {
+            "interface-1": {
+                "pair": [
+                    {
+                        "region": "domain_fluid",
+                        "boundary": "domain_fluid_to_domain_solid"
+                    },
+                    {
+                        "region": "domain_solid",
+                        "boundary": "domain_solid_to_domain_fluid"
+                    }
+                ],
+                "conformal": true
+            }
+        }
+    },
+    "gravity": [0.0, -9.81, 0.0],
+    "reference_conditions": {
+        "pressure": 101325.0,
+        "temperature": 298.15
+    },
+    "material_properties": {
+        "domain_fluid": "air-temperature-dependent",
+        "domain_solid": {
+            "type": "cell_zone_specific",
+            "kappa_type": "anisotropic",
+            "coordinate_system": {
+                "origin": [0.1, -4.5, 3.78],
+                "e1": [0.2, 0.76, -0.38],
+                "e2": [0, 1, 0]
+            },
+            "properties": {
+                "default":     { "material": "zone-default", "kappa": [10.2, 0.102, 0.102] },
+                "zone1,zone2": { "material": "zone-1-2",     "kappa": [0.03, 0.3, 0.003] },
+                "zone3,zone4": { "material": "zone-3-4",     "kappa": [100, 10, 1] },
+                "zone5":       { "material": "zone-5",       "kappa": [0.225, 0.0225, 22.5] }
+            }
+        }
+    },
+    "turbulence": {
+        "active": true,
+        "type": "RANS",
+        "RANS_config": {
+            "model": "kOmegaSST",
+            "model_coeffs": {
+                "Prt": 0.85,
+                "decayControl": true
+            },
+            "wall_function": "Automatic",
+            "thermal_wall_function": "Standard"
+        }
+    },
+    "radiation": {
+        "active": true,
+        "model": "fvDOM",
+        "model_coeffs": {
+            "nPhi": 3,
+            "nTheta": 6,
+            "tolerance": 0.01,
+            "maxIter": 10,
+            "solverFreq": 50
+        }
+    },
+    "initial_conditions": {
+        "method": "uniform",
+        "domain_fluid": {
+            "U": [0.0, 0.0, 0.0],
+            "p": 0.0,
+            "T": "REF-TEMP",
+            "k": 1.0,
+            "omega": 1000
+        },
+        "domain_solid": {
+            "T": 298.15
+        }
+    },
+    "boundary_conditions": {
+        "domain_fluid": {
+            "Inflow": {
+                "type": "velocity-inlet",
+                "velocity": {
+                    "mode": "normal-magnitude",
+                    "time_varying": {
+                        "csv_file": "data.csv",
+                        "ref_column": 0,
+                        "component_columns": [2],
+                        "skip_rows": 1
+                    }
+                },
+                "thermal": {
+                    "mode": "temperature",
+                    "time_varying": {
+                        "csv_file": "data.csv",
+                        "ref_column": 0,
+                        "component_columns": [4],
+                        "skip_rows": 1
+                    }
+                },
+                "turbulence": {
+                    "mode": "intensity-and-length-scale",
+                    "intensity": 0.05,
+                    "length_scale": 0.007
+                }
+            },
+            "Outflow": {
+                "type": "pressure-outlet",
+                "pressure": 0.0,
+                "prevent_backflow": false,
+                "backflow_conditions": {
+                    "thermal": {
+                        "mode": "temperature",
+                        "value": 290.15
+                    },
+                    "turbulence": {
+                        "mode": "intensity-and-length-scale",
+                        "intensity": 0.01,
+                        "length_scale": 0.005
+                    }
+                }
+            },
+            "all_walls": {
+                "type": "no-slip-wall",
+                "thermal": {
+                    "mode": "heat-transfer-coefficient",
+                    "htc": 28.2,
+                    "ambient_temperature": 298.15,
+                    "outer_emissivity": 0.54,
+                    "thermal_layers": [
+                        {
+                            "thickness": 0.01,
+                            "conductivity": 10.1
+                        },
+                        {
+                            "thickness": 0.02,
+                            "conductivity": 0.15
+                        }
+                    ]
+                }
+            },
+            "fan-block-new": {
+                "type": "no-slip-wall",
+                "thermal": {
+                    "mode": "temperature",
+                    "time_varying": {
+                        "csv_file": "data.csv",
+                        "ref_column": 0,
+                        "component_columns": [4],
+                        "skip_rows": 1
+                    }
+                }
+            },
+            "In1, leftIn": {
+                "type": "no-slip-wall",
+                "thermal": {
+                    "mode": "heat-flux",
+                    "value": 0.0
+                }
+            },
+            "__default__": {
+                "type": "pressure-outlet",
+                "pressure": 15.6,
+                "prevent_backflow": true
+            }
+        },
+        "domain_solid": {
+            "external_walls": {
+                "type": "solid-wall",
+                "thermal": {
+                    "mode": "temperature",
+                    "value": 323.15
+                }
+            }
+        },
+        "cht_interfaces": {
+            "interface-1": {
+                "thermal_layers": [
+                    {
+                        "thickness": 0.046,
+                        "conductivity": 35.6
+                    },
+                    {
+                        "thickness": 0.1,
+                        "conductivity": 0.04
+                    }
+                ]
+            }
+        }
+    },
+    "faceZone_conditions": {
+        "domain_fluid": {
+            "fan-baffle": {
+                "type": "fan",
+                "patch_name": "fanPatch",
+                "fan_curve":
+                {
+                    "csv_file": "fan_curve.csv",
+                    "ref_column": 0,
+                    "component_columns": [1],
+                    "skip_rows": 1
+                }
+            }
+        }
+    },
+    "function_objects": {
+        "domain_fluid": [
+            {
+                "type": "volume_integral",
+                "field": "density",
+                "cellZone": "fluid_zone_A"
+            },
+            {
+                "type": "mass_integral",
+                "field": "temperature",
+                "cellZone": "fluid_zone_A"
+            },
+            {
+                "type": "mass_average",
+                "field": "pressure"
+            },
+            {
+                "type": "volume_min",
+                "field": "density",
+                "cellZone": "fluid_zone_A"
+            },
+            {
+                "type": "volume_min",
+                "field": "pressure"
+            },
+            {
+                "type": "volume_sum",
+                "field": "temperature",
+                "cellZone": "fluid_zone_A"
+            },
+            {
+                "type": "area_average",
+                "field": "yPlus",
+                "patch": "domain_fluid_to_domain_solid"
+            },
+            {
+                "type": "surface_min",
+                "field": "wallHeatFlux",
+                "patch": "domain_fluid_to_domain_solid"
+            }
+        ],
+        "domain_solid": [
+            {
+                "type": "cellZone_average",
+                "field": "temperature",
+                "cellZones": ["zone-1", "zone-2"]
+            },
+            {
+                "type": "volume_average",
+                "field": "temperature"
+            }
+        ]
+    },
+    "fv_options": {
+        "domain_fluid": [
+            {
+                "type": "heat-source",
+                "mode": "absolute",
+                "value": 2.1
+            }
+        ],
+        "domain_solid": [
+            {
+                "type": "heat-source",
+                "cellZone": "zone-1",
+                "mode": "absolute",
+                "value": 1.786
+            },
+            {
+                "type": "heat-source",
+                "cellZone": "zone-3",
+                "mode": "specific",
+                "value": 4.05
+            }
+        ]
+    },
+    "numerical_schemes": {
+        "time": "Euler",
+        "convection": {
+            "momentum":   "second-order-upwind",
+            "energy":     "second-order-upwind",
+            "turbulence": "first-order-upwind"
+        },
+        "gradients": "green-gauss"
+    },
+    "matrix_solvers": {
+        "fluid": {
+            "pressure": {
+                "solver": "GAMG",
+                "preconditioner": "GaussSeidel",
+                "tolerance": 1e-05,
+                "relative_tolerance": 0.01,
+                "min_iter": 1,
+                "max_iter": 100
+            },
+            "others": {
+                "solver": "PBiCGStab",
+                "preconditioner": "DILU",
+                "tolerance": 1e-06,
+                "relative_tolerance": 0.01,
+                "min_iter": 1,
+                "max_iter": 100
+            }
+        },
+        "solid": {
+            "energy": {
+                "solver": "PCG",
+                "preconditioner": "DIC",
+                "tolerance": 1e-06,
+                "relative_tolerance": 0.01,
+                "min_iter": 1,
+                "max_iter": 100
+            }
+        }
+    },
+    "iterative_solver": {
+        "max_outer_iterations": 5,
+        "fluid": {
+            "scheme": "SIMPLE",
+            "pressure_correctors": 2,
+            "non_orthogonal_correctors": 1,
+            "momentum_predictor": true,
+            "solve_turb_once_per_timestep": false
+        },
+        "solid": {
+            "non_orthogonal_correctors": 2
+        }
+    },
+    "convergence_criteria": {
+        "fluid": {
+            "residuals": {
+                "pressure": 0.001,
+                "velocity": 0.0001,
+                "energy": 0.0001,
+                "turbulence": 0.001
+            }
+        },
+        "solid": {
+            "residuals": {
+                "energy": 1e-08
+            }
+        }
+    },
+    "relaxation_factors": {
+        "fluid": {
+            "density": 1.0,
+            "pressure": 0.3,
+            "velocity": 0.7,
+            "energy": 0.7,
+            "turbulence": 0.7
+        },
+        "solid": {
+            "energy": 1.0
+        }
+    }
+}

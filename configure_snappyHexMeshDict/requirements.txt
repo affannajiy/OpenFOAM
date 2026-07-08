@@ -1,7 +1,0 @@
-# Required — all runs
-jinja2>=3.1
-
-# Optional — only needed for the AUTO_ auto-refinement feature
-# trimesh uses numpy internally; both must be installed together
-trimesh>=4.0
-numpy>=1.24

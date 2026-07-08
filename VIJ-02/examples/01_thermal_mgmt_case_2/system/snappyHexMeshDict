@@ -1,0 +1,635 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2506                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+FoamFile
+{
+    version         2;
+    format          ascii;
+    class           dictionary;
+    object          snappyHexMeshDict;
+}
+
+// Mesh min max values
+OD_MIN              0;
+OD_MAX              0;
+PCB_MIN             4;
+PCB_MAX             4;
+HS_252_MIN          6;
+HS_252_MAX          6;
+HS_220_MIN          5;
+HS_220_MAX          6;
+MFT_MIN             5;
+MFT_MAX             5;
+SK_MIN              4;
+SK_MAX              5;
+IC_MIN              2;
+IC_MAX              5;
+IND_MIN             1;
+IND_MAX             2;
+TF_MIN              1;
+TF_MAX              2;
+FAN_MIN             1;
+FAN_MAX             3;
+EMI_SHIELD          5;
+
+
+castellatedMesh true;
+
+snap            true;
+
+addLayers       false;
+
+geometry
+{
+    outer-domain.stl
+    {
+        type            triSurfaceMesh;
+        name            outer-domain;
+        regions
+        {
+            Inflow
+            {
+                name            Inflow;
+            }
+            all_walls
+            {
+                name            all_walls;
+            }
+            Outflow
+            {
+                name            Outflow;
+            }
+        }
+    }
+    PCB-board-bottom.stl
+    {
+        type            triSurfaceMesh;
+        name            PCB-board-bottom;
+    }
+    PCB-board-top.stl
+    {
+        type            triSurfaceMesh;
+        name            PCB-board-top;
+    }
+    heat-sink-to-252-1.stl
+    {
+        type            triSurfaceMesh;
+        name            heat-sink-to-252-1;
+    }
+    heat-sink-to-252-2.stl
+    {
+        type            triSurfaceMesh;
+        name            heat-sink-to-252-2;
+    }
+    heat-sink-to-252-3.stl
+    {
+        type            triSurfaceMesh;
+        name            heat-sink-to-252-3;
+    }
+    heat-sink-to-252-4.stl
+    {
+        type            triSurfaceMesh;
+        name            heat-sink-to-252-4;
+    }
+    heat-sink-to-220-1.stl
+    {
+        type            triSurfaceMesh;
+        name            heat-sink-to-220-1;
+    }
+    heat-sink-to-220-2.stl
+    {
+        type            triSurfaceMesh;
+        name            heat-sink-to-220-2;
+    }
+    heat-sink-to-220-3.stl
+    {
+        type            triSurfaceMesh;
+        name            heat-sink-to-220-3;
+    }
+    heat-sink-to-220-4.stl
+    {
+        type            triSurfaceMesh;
+        name            heat-sink-to-220-4;
+    }
+    mosfet-1.stl
+    {
+        type            triSurfaceMesh;
+        name            mosfet-1;
+    }
+    mosfet-2.stl
+    {
+        type            triSurfaceMesh;
+        name            mosfet-2;
+    }
+    mosfet-3.stl
+    {
+        type            triSurfaceMesh;
+        name            mosfet-3;
+    }
+    mosfet-4.stl
+    {
+        type            triSurfaceMesh;
+        name            mosfet-4;
+    }
+    schottky-1.stl
+    {
+        type            triSurfaceMesh;
+        name            schottky-1;
+    }
+    schottky-2.stl
+    {
+        type            triSurfaceMesh;
+        name            schottky-2;
+    }
+    schottky-3.stl
+    {
+        type            triSurfaceMesh;
+        name            schottky-3;
+    }
+    schottky-4.stl
+    {
+        type            triSurfaceMesh;
+        name            schottky-4;
+    }
+    inductor-comp-1.stl
+    {
+        type            triSurfaceMesh;
+        name            inductor-comp-1;
+    }
+    inductor-comp-2.stl
+    {
+        type            triSurfaceMesh;
+        name            inductor-comp-2;
+    }
+    inductor-comp-3.stl
+    {
+        type            triSurfaceMesh;
+        name            inductor-comp-3;
+    }
+    inductor-comp-4.stl
+    {
+        type            triSurfaceMesh;
+        name            inductor-comp-4;
+    }
+    transformer.stl
+    {
+        type            triSurfaceMesh;
+        name            transformer;
+    }
+    inductor.stl
+    {
+        type            triSurfaceMesh;
+        name            inductor;
+    }
+    fan-baffle.stl
+    {
+        type            triSurfaceMesh;
+        name            fan-baffle;
+    }
+    fan-block-new.stl
+    {
+        type            triSurfaceMesh;
+        name            fan-block-new;
+    }
+    emi-shield.stl
+    {
+        type        triSurfaceMesh;
+        name        emi-shield;
+    }
+    extra-emi-shield.stl
+    {
+        type        triSurfaceMesh;
+        name        extra-emi-shield;
+    }
+    thermal-pad-1.stl
+    {
+        type        triSurfaceMesh;
+        name        thermal-pad-1;
+    }
+    thermal-pad-2.stl
+    {
+        type        triSurfaceMesh;
+        name        thermal-pad-2;
+    }
+}
+
+castellatedMeshControls
+{
+    maxLocalCells   100000000;
+    maxGlobalCells  300000000;
+    minRefinementCells 10;
+    maxLoadUnbalance 0.1;
+    features        ( );
+    refinementRegions
+    {
+        outer-domain
+        {
+            mode            inside;
+            levels          ( ( 1 $OD_MIN ) );
+            // gapLevel        (4 2 5);
+            // gapMode         inside;
+        }
+
+        "PCB-board-.*"
+        {
+            mode            inside;
+            levels          ( ( 1 $PCB_MIN ) );
+        }
+
+        "heat-sink-to-252-.*"
+        {
+            mode            inside;
+            levels          ( ( 1 $HS_252_MIN ) );
+        }
+
+        "heat-sink-to-220-.*"
+        {
+            mode            inside;
+            levels          ( ( 1 $HS_220_MIN ) );
+        }
+
+        "mosfet-.*"
+        {
+            mode            inside;
+            levels          ( ( 1 $MFT_MIN ) );
+        }
+
+        "schottky-.*"
+        {
+            mode            inside;
+            levels          ( ( 1 $SK_MIN ) );
+        }
+
+        "inductor-comp-.*"
+        {
+            mode            inside;
+            levels          ( ( 1 $IC_MIN ) );
+        }
+
+        transformer
+        {
+            mode            inside;
+            levels          ( ( 1 $TF_MIN ) );
+        }
+
+        inductor
+        {
+            mode            inside;
+            levels          ( ( 1 $IND_MIN ) );
+        }
+
+        fan-block-new
+        {
+            mode            inside;
+            levels          ( ( 1 $FAN_MIN ) );
+        }
+
+        emi-shield
+        {
+            mode            inside;
+            levels          ( ( 1 $EMI_SHIELD ) );
+        }
+
+        extra-emi-shield
+        {
+            mode            inside;
+            levels          ( ( 1 $EMI_SHIELD ) );
+        }
+
+        "thermal-pad-.*"
+        {
+            mode            inside;
+            levels          ( ( 1 $PCB_MIN ) ); // use same ref. level as PCB boards
+        }
+    }
+    refinementSurfaces
+    {
+        outer-domain
+        {
+            level           ( $OD_MIN $OD_MAX );
+            regions
+            {
+                Inflow
+                {
+                    level           ( $OD_MIN $OD_MAX);
+                    patchInfo
+                    {
+                        type            wall;
+                        inGroups        ( walls );
+                    }
+                }
+                all_walls
+                {
+                    level           ( $OD_MIN $OD_MAX);
+                    patchInfo
+                    {
+                        type            wall;
+                        inGroups        ( walls );
+                    }
+                }
+                Outflow
+                {
+                    level           ( $OD_MIN $OD_MAX );
+                    patchInfo
+                    {
+                        type            wall;
+                        inGroups        ( walls );
+                    }
+                }
+            }
+        }
+        PCB-board-bottom
+        {
+            level           ( $PCB_MIN $PCB_MAX );
+            faceZone        PCB-board-bottom;
+            faceType        internal;
+            cellZone        PCB-board-bottom;
+            cellZoneInside  inside;
+        }
+        PCB-board-top
+        {
+            level           ( $PCB_MIN $PCB_MAX );
+            faceZone        PCB-board-top;
+            faceType        internal;
+            cellZone        PCB-board-top;
+            cellZoneInside  inside;
+        }
+        heat-sink-to-252-1
+        {
+            level           ( $HS_252_MIN $HS_252_MAX );
+            faceZone        heat-sink-to-252-1;
+            faceType        internal;
+            cellZone        heat-sink-to-252-1;
+            cellZoneInside  inside;
+        }
+        heat-sink-to-252-2
+        {
+            level           ( $HS_252_MIN $HS_252_MAX );
+            faceZone        heat-sink-to-252-2;
+            faceType        internal;
+            cellZone        heat-sink-to-252-2;
+            cellZoneInside  inside;
+        }
+        heat-sink-to-252-3
+        {
+            level           ( $HS_252_MIN $HS_252_MAX );
+            faceZone        heat-sink-to-252-3;
+            faceType        internal;
+            cellZone        heat-sink-to-252-3;
+            cellZoneInside  inside;
+        }
+        heat-sink-to-252-4
+        {
+            level           ( $HS_252_MIN $HS_252_MAX );
+            faceZone        heat-sink-to-252-4;
+            faceType        internal;
+            cellZone        heat-sink-to-252-4;
+            cellZoneInside  inside;
+        }
+        heat-sink-to-220-1
+        {
+            level           ( $HS_220_MIN $HS_220_MAX );
+            faceZone        heat-sink-to-220-1;
+            faceType        internal;
+            cellZone        heat-sink-to-220-1;
+            cellZoneInside  inside;
+        }
+        heat-sink-to-220-2
+        {
+            level           ( $HS_220_MIN $HS_220_MAX );
+            faceZone        heat-sink-to-220-2;
+            faceType        internal;
+            cellZone        heat-sink-to-220-2;
+            cellZoneInside  inside;
+        }
+        heat-sink-to-220-3
+        {
+            level           ( $HS_220_MIN $HS_220_MAX );
+            faceZone        heat-sink-to-220-3;
+            faceType        internal;
+            cellZone        heat-sink-to-220-3;
+            cellZoneInside  inside;
+        }
+        heat-sink-to-220-4
+        {
+            level           ( $HS_220_MIN $HS_220_MAX );
+            faceZone        heat-sink-to-220-4;
+            faceType        internal;
+            cellZone        heat-sink-to-220-4;
+            cellZoneInside  inside;
+        }
+        mosfet-1
+        {
+            level           ( $MFT_MIN $MFT_MAX );
+            faceZone        mosfet-1;
+            faceType        internal;
+            cellZone        mosfet-1;
+            cellZoneInside  inside;
+        }
+        mosfet-2
+        {
+            level           ( $MFT_MIN $MFT_MAX );
+            faceZone        mosfet-2;
+            faceType        internal;
+            cellZone        mosfet-2;
+            cellZoneInside  inside;
+        }
+        mosfet-3
+        {
+            level           ( $MFT_MIN $MFT_MAX );
+            faceZone        mosfet-3;
+            faceType        internal;
+            cellZone        mosfet-3;
+            cellZoneInside  inside;
+        }
+        mosfet-4
+        {
+            level           ( $MFT_MIN $MFT_MAX );
+            faceZone        mosfet-4;
+            faceType        internal;
+            cellZone        mosfet-4;
+            cellZoneInside  inside;
+        }
+        schottky-1
+        {
+            level           ( $SK_MIN $SK_MAX );
+            faceZone        schottky-1;
+            faceType        internal;
+            cellZone        schottky-1;
+            cellZoneInside  inside;
+        }
+        schottky-2
+        {
+            level           ( $SK_MIN $SK_MAX );
+            faceZone        schottky-2;
+            faceType        internal;
+            cellZone        schottky-2;
+            cellZoneInside  inside;
+        }
+        schottky-3
+        {
+            level           ( $SK_MIN $SK_MAX );
+            faceZone        schottky-3;
+            faceType        internal;
+            cellZone        schottky-3;
+            cellZoneInside  inside;
+        }
+        schottky-4
+        {
+            level           ( $SK_MIN $SK_MAX );
+            faceZone        schottky-4;
+            faceType        internal;
+            cellZone        schottky-4;
+            cellZoneInside  inside;
+        }
+        inductor-comp-1
+        {
+            level           ( $IC_MIN $IC_MAX );
+            faceZone        inductor-comp-1;
+            faceType        internal;
+            cellZone        inductor-comp-1;
+            cellZoneInside  inside;
+        }
+        inductor-comp-2
+        {
+            level           ( $IC_MIN $IC_MAX );
+            faceZone        inductor-comp-2;
+            faceType        internal;
+            cellZone        inductor-comp-2;
+            cellZoneInside  inside;
+        }
+        inductor-comp-3
+        {
+            level           ( $IC_MIN $IC_MAX );
+            faceZone        inductor-comp-3;
+            faceType        internal;
+            cellZone        inductor-comp-3;
+            cellZoneInside  inside;
+        }
+        inductor-comp-4
+        {
+            level           ( $IC_MIN $IC_MAX );
+            faceZone        inductor-comp-4;
+            faceType        internal;
+            cellZone        inductor-comp-4;
+            cellZoneInside  inside;
+        }
+        transformer
+        {
+            level           ( $TF_MIN $TF_MAX );
+            faceZone        transformer;
+            faceType        internal;
+            cellZone        transformer;
+            cellZoneInside  inside;
+        }
+        inductor
+        {
+            level           ( $IND_MIN $IND_MAX );
+            faceZone        inductor;
+            faceType        internal;
+            cellZone        inductor;
+            cellZoneInside  inside;
+        }
+        fan-baffle
+        {
+            level           ( $FAN_MIN $FAN_MAX );
+            faceZone        fan-baffle;
+            faceType        internal;
+        }
+        fan-block-new
+        {
+            level           ( $FAN_MIN $FAN_MAX );
+            faceZone        fan-block-new;
+            faceType        internal;
+            cellZone        fan-block-new;
+            cellZoneInside  inside;
+        }
+        emi-shield
+        {
+            level           ( $EMI_SHIELD $EMI_SHIELD );
+            faceZone        emi-shield;
+            faceType        internal;
+            cellZone        emi-shield;
+            cellZoneInside  inside;
+        }
+        extra-emi-shield
+        {
+            level           ( $EMI_SHIELD $EMI_SHIELD );
+            faceZone        extra-emi-shield;
+            faceType        internal;
+            cellZone        extra-emi-shield;
+            cellZoneInside  inside;
+        }
+        thermal-pad-1
+        {
+            level           ( $PCB_MIN $PCB_MAX );
+            faceZone        thermal-pad-1;
+            faceType        internal;
+            cellZone        thermal-pad-1;
+            cellZoneInside  inside;
+        }
+        thermal-pad-2
+        {
+            level           ( $PCB_MIN $PCB_MAX );
+            faceZone        thermal-pad-2;
+            faceType        internal;
+            cellZone        thermal-pad-2;
+            cellZoneInside  inside;
+        }
+    }
+    resolveFeatureAngle 30;
+    nCellsBetweenLevels 2;
+    locationInMesh  ( 120 70 320 );
+    allowFreeStandingZoneFaces true;
+}
+
+snapControls
+{
+    nSmoothPatch    3;
+    nSmoothInternal 5;
+    tolerance       2;
+    nSolveIter      30;
+    nRelaxIter      5;
+    nFeatureSnapIter 10;
+    implicitFeatureSnap true;
+    explicitFeatureSnap false;
+    multiRegionFeatureSnap false;
+}
+
+addLayersControls
+{
+}
+
+meshQualityControls
+{
+    maxNonOrtho     65;
+    maxBoundarySkewness 20;
+    maxInternalSkewness 4;
+    maxConcave      80;
+    minFlatness     0.5;
+    minVol          1e-40;
+    minTetQuality   -1e-30;
+    minArea         -1;
+    minTwist        0.02;
+    minDeterminant  0.001;
+    minFaceWeight   0.05;
+    minVolRatio     0.01;
+    minTriangleTwist -1;
+    minEdgeLength   -1;
+    relaxed
+    {
+        maxNonOrtho     70;
+    }
+    nSmoothScale    4;
+    errorReduction  0.75;
+}
+
+mergeTolerance  1e-06;
+
+
+// ************************************************************************* //

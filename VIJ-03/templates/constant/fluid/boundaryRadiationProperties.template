@@ -1,0 +1,39 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  {{ openfoam_version }}                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "{{ location }}";
+    object      boundaryRadiationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+{% for patch in cht_rad_patches %}
+{{ patch.name }}
+{
+    type            lookup;
+    emissivity      {{ patch.emissivity }};
+    absorptivity    {{ patch.emissivity }};
+    transmissivity  0.0;
+}
+
+{% endfor %}
+{% for patch in rad_patches %}
+{{ patch.name }}
+{
+    type            lookup;
+    emissivity      {{ patch.emissivity }};
+    absorptivity    {{ patch.emissivity }};
+    transmissivity  0.0;
+}
+
+{% endfor %}
+// ************************************************************************* //

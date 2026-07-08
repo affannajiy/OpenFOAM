@@ -8,7 +8,7 @@ Python utilities for automating snappyHexMesh setup in ESI OpenFOAM v2506, with 
 
 ## Quick Start
 
-1. Go to `01_utilities\app\`.
+1. Go to `src\app\`.
 2. Double-click **`OpenFOAM_UI.exe`**.
 3. Startup window runs environment checks, then opens the GUI.
 
@@ -36,11 +36,11 @@ Python utilities for automating snappyHexMesh setup in ESI OpenFOAM v2506, with 
 
 ### Get the files
 
-Obtain the `01_utilities\` ZIP. It must contain every `.py` file, `defaults.json`, `requirements.txt`, `OpenFOAM_UI.exe`, and `templates\`. Do **not** include `__pycache__\`.
+Obtain the `src\` ZIP. It must contain every `.py` file, `defaults.json`, `requirements.txt`, `OpenFOAM_UI.exe`, and `templates\`. Do **not** include `__pycache__\`.
 
 ### Place the files
 
-Extract anywhere Windows-reachable under `/mnt/` from WSL. Recommended: `C:\OpenFOAM\01_utilities\` (WSL: `/mnt/c/OpenFOAM/01_utilities/`).
+Extract anywhere Windows-reachable under `/mnt/` from WSL. Recommended: `C:\OpenFOAM\src\` (WSL: `/mnt/c/OpenFOAM/src/`).
 
 ### Install Python dependencies
 
@@ -50,7 +50,7 @@ From the Ubuntu terminal:
 sudo apt-get install python3-pip python3-pyqt5 python3-numpy python3-jinja2
 ```
 
-Or with pip: `pip3 install -r /mnt/c/OpenFOAM/01_utilities/requirements.txt --break-system-packages`
+Or with pip: `pip3 install -r /mnt/c/OpenFOAM/src/requirements.txt --break-system-packages`
 
 | Package | Purpose |
 |---------|---------|
@@ -67,7 +67,7 @@ Insert (`i`), add, save (`Esc` then `:wq`):
 ```bash
 alias myDir="cd /mnt/c/OpenFOAM"
 alias of2506="source /usr/lib/openfoam/openfoam2506/etc/bashrc"
-alias openfoamUI="python3 /mnt/c/OpenFOAM/01_utilities/app/openfoam_ui.py"
+alias openfoamUI="python3 /mnt/c/OpenFOAM/src/app/openfoam_ui.py"
 ```
 Apply: `source ~/.bash_aliases`
 
@@ -100,7 +100,7 @@ Six pre-flight steps, stops at first failure with a fix message:
 | 3 | WSLg display + compositor | `wsl --update` then `wsl --shutdown` |
 | 4 | OpenFOAM bashrc (2506, or 2312) | Install OpenFOAM 2506 in WSL |
 | 5 | Python packages + setup gate | Single consent dialog; apt-only install of Qt libs + PyQt5/numpy/jinja2 |
-| 6 | `openfoam_ui.py` present | Keep all files together in `01_utilities\app\` |
+| 6 | `openfoam_ui.py` present | Keep all files together in `src\app\` |
 
 ---
 
@@ -171,7 +171,7 @@ GUI scans all of `constant/` recursively — subfolder name doesn't matter.
 
 ```bash
 source /usr/lib/openfoam/openfoam2506/etc/bashrc
-python3 /mnt/c/OpenFOAM/01_utilities/app/openfoam_ui.py
+python3 /mnt/c/OpenFOAM/src/app/openfoam_ui.py
 # Landing page → new/open project → choose utility → Continue →
 # Tab 1: select STL, set DX/DY/DZ, Generate Background Mesh
 # Tab 2: configure Sections 01-04, Generate + Run snappyHexMesh
@@ -186,13 +186,13 @@ Run inside WSL with the OpenFOAM environment sourced.
 
 **generateBackgroundMesh.py** — STL bbox → `blockMeshDict` → `blockMesh`:
 ```bash
-python3 /mnt/c/OpenFOAM/01_utilities/app/generateBackgroundMesh.py \
+python3 /mnt/c/OpenFOAM/src/app/generateBackgroundMesh.py \
   -stlPath constant/triSurface/geometry.stl -dx 0.05 -dy 0.05 -dz 0.05
 ```
 
 **generateSnappyHexMeshDict.py** — interactive prompts, also writes `fvSchemes`/`fvSolution` when layers are enabled:
 ```bash
-python3 /mnt/c/OpenFOAM/01_utilities/app/generateSnappyHexMeshDict.py
+python3 /mnt/c/OpenFOAM/src/app/generateSnappyHexMeshDict.py
 ```
 Requires `system/controlDict` and `constant/` in the case root.
 
@@ -211,7 +211,7 @@ Requires `system/controlDict` and `constant/` in the case root.
 | Python 3 Not Found | `sudo apt-get install -y python3` |
 | Missing Python Packages | `sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2`, or accept the setup prompt |
 | Package Installation Failed | Dialog names the failing component; check `%TEMP%\openfoam_ui_launcher.log` |
-| Application File Missing | Keep `.exe` inside `01_utilities\app\` with all `.py` files |
+| Application File Missing | Keep `.exe` inside `src\app\` with all `.py` files |
 | Launch Failed | Run manually in WSL and check Python errors |
 
 | General issue | Fix |
@@ -235,7 +235,7 @@ Install extra libraries: `sudo apt-get install python3-<name>` or `pip3 install 
 
 ```
 C:\OpenFOAM\
-├── 01_utilities\
+├── src\
 │   ├── app\                            # Distribution ZIP — all end-user files
 │   │   ├── openfoam_ui.py              # PyQt5 GUI entry point
 │   │   ├── ui_shared.py                # Colour tokens, styles, shared helpers
@@ -282,7 +282,7 @@ See `CLAUDE.md` for full detail.
 Only needed when `openfoam_ui_launcher.py` changes — other `.py` edits take effect on next launch.
 
 ```bat
-cd C:\OpenFOAM\01_utilities\deploy
+cd C:\OpenFOAM\src\deploy
 build_exe.bat
 ```
 
@@ -294,7 +294,7 @@ Prompts for a version number, patches `version_info.txt` + the splash label, run
 
 **Building:** run `build_exe.bat` on a clean machine; confirm `dist\OpenFOAM_UI.exe` built with no errors and was copied to `app\`.
 
-**Packaging:** ZIP `01_utilities\app\` (exe, all `.py`, `icons\`, `defaults.json`, `requirements.txt`, `templates\`); exclude `deploy\`, `__pycache__\`, `.pyc`; smoke-test from a clean extract.
+**Packaging:** ZIP `src\app\` (exe, all `.py`, `icons\`, `defaults.json`, `requirements.txt`, `templates\`); exclude `deploy\`, `__pycache__\`, `.pyc`; smoke-test from a clean extract.
 
 **What's bundled in the EXE:** only `openfoam_ui_launcher.py` + stdlib/tkinter. Everything else (`openfoam_ui.py`, `ui_*.py`, `snappy_generator.py`, PyQt5/numpy/jinja2, `defaults.json`) runs live from `.py` files in WSL.
 

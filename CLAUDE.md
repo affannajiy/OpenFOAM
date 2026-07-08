@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in this repo. Two layers: Python tooling (`01_utilities/`) and an example OpenFOAM case (`03_mesh_session/`).
+Guidance for Claude Code working in this repo. Two layers: Python tooling (`src/`) and an example OpenFOAM case (`03_mesh_session/`).
 
 ## Environment
 
@@ -11,25 +11,25 @@ Guidance for Claude Code working in this repo. Two layers: Python tooling (`01_u
 
 ## Dependencies
 
-- WSL: `sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2` (or `pip3 install -r 01_utilities/app/requirements.txt --break-system-packages`).
+- WSL: `sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2` (or `pip3 install -r src/app/requirements.txt --break-system-packages`).
 - **PyQt5** (GUI), **numpy** (bbox/cell arithmetic), **jinja2** (snappy template; lazily imported with an apt-hint error so the GUI starts without it). All other imports are stdlib.
 
 ## Running
 
 ```bash
 source /usr/lib/openfoam/openfoam2506/etc/bashrc
-python3 /mnt/c/OpenFOAM/01_utilities/app/openfoam_ui.py     # GUI (recommended)
+python3 /mnt/c/OpenFOAM/src/app/openfoam_ui.py     # GUI (recommended)
 ```
 Landing page → create/open a project → pick a utility → Continue. CLI tools: `generateBackgroundMesh.py` (block mesh from STL bbox) and `generateSnappyHexMeshDict.py` (interactive). Feature snapping is always implicit — no `surfaceFeatureExtract`/`.eMesh`.
 
-## Layout of `01_utilities/`
+## Layout of `src/`
 
 - **`app/`** — shipped to users; the distribution ZIP. All `*.py`, `defaults.json`, `requirements.txt`, `OpenFOAM_UI.exe`, `templates/`, `icons/`.
 - **`deploy/`** — build tooling only (not shipped): `generate_icon.py`, `openfoam_ui_launcher.spec`, `build_exe.bat`, `version_info.txt`, `icon_source.svg`, PyInstaller artefacts.
 
 **Building the EXE** (Windows CMD in `deploy/`): `build_exe.bat` prompts a version, patches `version_info.txt` (filevers/prodvers/FileVersion/ProductVersion) + the launcher splash label, runs PyInstaller, copies `OpenFOAM_UI.exe` to `app/`. The `.exe` is a **thin launcher** — only rebuild it when `openfoam_ui_launcher.py` changes; edits to any other `.py` take effect on next launch. ZIP the whole `app/` folder (includes `templates/`, `defaults.json`). Icons: `generate_icon.py` → `app/icons/` (16/32/48/64/128/256 PNGs + `openfoam_ui.ico`).
 
-## GUI files (`01_utilities/app/`)
+## GUI files (`src/app/`)
 
 - **`openfoam_ui_launcher.py`** — Windows `.exe` entry (stdlib only). Dark splash, WSL pre-flight checks in a retry loop, then launches `openfoam_ui.py` in WSL. Targets one detected distro via `wsl -d <name> --exec bash -c` (the `--exec` prevents double shell evaluation). Checks: distro detect (registry `Lxss`) → patient WSL boot (90 s) → WSLg display + Qt compositor probe → OpenFOAM bashrc + `python3` package check (`PyQt5`, `numpy`, `jinja2`) → apt-only setup gate (no pip) → `openfoam_ui.py` present. Never asks for a Windows restart; failures end in a **Try Again** dialog. Logs to `%TEMP%\openfoam_ui_launcher.log`.
 - **`openfoam_ui.py`** — `QMainWindow` shell: header bar, hero strip, tab pills, root `QStackedWidget` (0=landing, 1=utility), `LogDrawer`, status bar. No CFD logic. `qInstallMessageHandler` silences harmless Qt5 "Could not parse stylesheet" warnings.

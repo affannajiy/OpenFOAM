@@ -35,7 +35,7 @@ git remote add bitbucket https://bitbucket.it.keysight.com/scm/~affarusd/openfoa
 2. **Check for secrets** — scan for passwords, tokens, API keys, `.env` files; abort if found
 3. **Check for build artifacts** — ensure none of the following are staged:
    - `build/`, `dist/`, `__pycache__/`, `*.pyc`, `*.pyo`, `*.spec` output dirs
-   - `01_utilities/deploy/build/`, `01_utilities/deploy/dist/`
+   - `src/deploy/build/`, `src/deploy/dist/`
 4. **Check for large files** — warn on any file > 5 MB; abort on files > 50 MB
 5. **Syntax check** — for any staged `.py` file run `python3 -m py_compile <file>`; abort on syntax error
 6. **Untracked sensitive files** — warn if `.env`, `credentials*`, `*.key`, `*.pem` appear in `git status`
@@ -57,8 +57,6 @@ git commit -m "$(cat <<'EOF'
 <type>: <short imperative summary>
 
 <optional body — what changed and why, not how>
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
 )"
 

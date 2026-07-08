@@ -1,0 +1,188 @@
+{% macro render_inlet_T(name, thermal) %}
+{% if thermal.is_time_varying %}
+    {{ name }}
+    {
+        type                    uniformInletOutlet;
+        uniformInletValue       csvFile;
+        uniformInletValueCoeffs
+        {
+            nHeaderLine         {{ thermal.time_varying.skip_rows }};
+            refColumn           {{ thermal.time_varying.ref_column }};
+            componentColumns    ({{ thermal.time_varying.component_columns | join(' ') }});
+            separator           ",";
+            mergeSeparators     false;
+            file                "inputData/{{ thermal.time_varying.csv_file }}";
+            outOfBounds         clamp;
+            interpolationScheme linear;
+        }
+        value                   $internalField;
+    }
+
+{% else %}
+    {{ name }}
+    {
+        type        inletOutlet;
+        inletValue  uniform {{ thermal.value }};
+        value       $internalField;
+    }
+
+{% endif %}
+{% endmacro %}
+{% macro render_wall_T(name, thermal) %}
+{% if thermal.mode == "temperature" %}
+{% if thermal.is_time_varying %}
+    {{ name }}
+    {
+        type                uniformFixedValue;
+        uniformValue        csvFile;
+        uniformValueCoeffs
+        {
+            nHeaderLine         {{ thermal.time_varying.skip_rows }};
+            refColumn           {{ thermal.time_varying.ref_column }};
+            componentColumns    ({{ thermal.time_varying.component_columns | join(' ') }});
+            separator           ",";
+            mergeSeparators     false;
+            file                "inputData/{{ thermal.time_varying.csv_file }}";
+            outOfBounds         clamp;
+            interpolationScheme linear;
+        }
+    }
+
+{% else %}
+    {{ name }}
+    {
+        type    fixedValue;
+        value   uniform {{ thermal.value }};
+    }
+
+{% endif %}
+{% elif thermal.mode == "heat-flux" %}
+    {{ name }}
+    {
+        type            externalWallHeatFluxTemperature;
+        mode            flux;
+        q               constant {{ thermal.q }};
+        qr              {{ thermal.qr_value }};
+        qrRelaxation    1;
+        kappaMethod     {{ thermal.kappa_method }};
+        {% if thermal.is_anisotropic %}
+        alphaAni        aniAlpha;
+        {% endif %}
+        value           $internalField;
+    }
+
+{% elif thermal.mode == "heat-transfer-rate" %}
+    {{ name }}
+    {
+        type            externalWallHeatFluxTemperature;
+        mode            power;
+        Q               constant {{ thermal.Q }};
+        qr              {{ thermal.qr_value }};
+        qrRelaxation    1;
+        kappaMethod     {{ thermal.kappa_method }};
+        {% if thermal.is_anisotropic %}
+        alphaAni        aniAlpha;
+        {% endif %}
+        value           $internalField;
+    }
+
+{% elif thermal.mode == "heat-transfer-coefficient" %}
+    {{ name }}
+    {
+        type            externalWallHeatFluxTemperature;
+        mode            coefficient;
+        Ta              constant {{ thermal.ambient_temperature }};
+        h               constant {{ thermal.htc }};
+        {% if thermal.has_emissivity %}
+        emissivity      {{ thermal.emissivity }};
+        {% endif %}
+        qr              {{ thermal.qr_value }};
+        qrRelaxation    1;
+        {% if thermal.has_thermal_layers %}
+        thicknessLayers ({{ thermal.thermal_layers | map(attribute='thickness') | join(' ') }});
+        kappaLayers     ({{ thermal.thermal_layers | map(attribute='conductivity') | join(' ') }});
+        {% endif %}
+        kappaMethod     {{ thermal.kappa_method }};
+        {% if thermal.is_anisotropic %}
+        alphaAni        aniAlpha;
+        {% endif %}
+        value           $internalField;
+    }
+
+{% endif %}
+{% endmacro %}
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2512                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "{{ location }}";
+    object      T;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 0 0 1 0 0 0];
+
+internalField   {{ internal_field }};
+
+boundaryField
+{
+    {% if patches or cht_patches %}
+    #includeEtc "caseDicts/setConstraintTypes"
+
+    {# ── CHT interface patches ─────────────────────────────────────────────── #}
+    {% for patch in cht_patches %}
+    {{ patch.name }}
+    {
+        type            compressible::turbulentTemperatureRadCoupledMixed;
+        Tnbr            T;
+        qrNbr           {{ patch.qr_nbr }};
+        qr              {{ patch.qr_value }};
+        {% if patch.has_thermal_layers %}
+        thicknessLayers ({{ patch.thermal_layers | map(attribute='thickness') | join(' ') }});
+        kappaLayers     ({{ patch.thermal_layers | map(attribute='conductivity') | join(' ') }});
+        {% endif %}
+        kappaMethod     {{ patch.kappa_method }};
+        {% if patch.is_anisotropic %}
+        alphaAni        aniAlpha;
+        {% endif %}
+        value           $internalField;
+    }
+
+    {% endfor %}
+    {% for patch in patches %}
+    {# ── velocity-inlet / total-pressure-inlet ───────────────────────────── #}
+    {% if patch.bc_type in ("velocity-inlet", "total-pressure-inlet") %}
+    {% if patch.thermal %}{{ render_inlet_T(patch.name, patch.thermal) }}{% endif %}
+    {# ── pressure-outlet ──────────────────────────────────────────────────── #}
+    {% elif patch.bc_type == "pressure-outlet" %}
+    {% if patch.prevent_backflow or not patch.backflow_thermal %}
+    {{ patch.name }}
+    {
+        type    zeroGradient;
+    }
+
+    {% else %}{{ render_inlet_T(patch.name, patch.backflow_thermal) }}{% endif %}
+    {# ── no-slip-wall / solid-wall ─────────────────────────────────────────── #}
+    {% elif patch.bc_type in ("no-slip-wall", "solid-wall") %}
+    {% if patch.thermal %}{{ render_wall_T(patch.name, patch.thermal) }}{% endif %}
+    {# ── slip-wall ─────────────────────────────────────────────────────────── #}
+    {% elif patch.bc_type == "slip-wall" %}
+    {{ patch.name }}
+    {
+        type    slip;
+    }
+
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+}
+
+// ************************************************************************* //

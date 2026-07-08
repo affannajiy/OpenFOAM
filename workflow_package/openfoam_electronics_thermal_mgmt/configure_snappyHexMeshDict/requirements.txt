@@ -1,8 +1,0 @@
-# Required — all runs
-jinja2>=3.1
-
-# Required — trimesh is used to compute the blockMesh bounding box from the
-# reference geometry file (every run), and also drives AUTO_ auto-refinement.
-# numpy is used directly by auto_refinement.py and transitively by trimesh.
-trimesh>=4.0
-numpy>=1.24

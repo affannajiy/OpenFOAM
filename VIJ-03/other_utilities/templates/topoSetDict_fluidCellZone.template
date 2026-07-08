@@ -1,0 +1,50 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \    /   O peration     | Version:  {{ openfoam_version }}                                 |
+|   \  /    A nd           | Website:  www.openfoam.com                      |
+|    \/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      topoSetDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+actions
+(
+    // ── Union all solid cellZones into {{ target_zone }} ─────────────────────
+
+    {
+        // Seed the target zone from the first solid zone.
+        name        {{ target_zone }};
+        type        cellZoneSet;
+        action      new;
+        source      zoneToCell;
+        zone        {{ zone_names[0] }};
+    }
+{%- for zone in zone_names[1:] %}
+
+    {
+        // Accumulate remaining solid zones.
+        name        {{ target_zone }};
+        type        cellZoneSet;
+        action      add;
+        source      zoneToCell;
+        zone        {{ zone }};
+    }
+{%- endfor %}
+
+    // ── Invert to obtain the fluid complement ─────────────────────────────────
+
+    {
+        name    {{ target_zone }};
+        type    cellZoneSet;
+        action  invert;
+    }
+
+);
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

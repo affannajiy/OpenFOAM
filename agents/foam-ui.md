@@ -15,21 +15,21 @@ CFD backend logic or subprocess calls — those stay in the backend files.
 ## Owned Files (may read AND write)
 
 ### Application UI
-- 01_utilities/app/openfoam_ui.py
-- 01_utilities/app/ui_landing.py
-- 01_utilities/app/ui_background_mesh.py
-- 01_utilities/app/ui_snappy_hex.py
-- 01_utilities/app/ui_log_drawer.py
+- src/app/openfoam_ui.py
+- src/app/ui_landing.py
+- src/app/ui_background_mesh.py
+- src/app/ui_snappy_hex.py
+- src/app/ui_log_drawer.py
 
 ### Design System
-- 01_utilities/app/ui_shared.py — colour tokens and style-sheet constants (source of truth)
-- 01_utilities/app/openfoam_ui_launcher.py — splash screen visuals only (no launcher logic changes)
-- 01_utilities/app/icons/
+- src/app/ui_shared.py — colour tokens and style-sheet constants (source of truth)
+- src/app/openfoam_ui_launcher.py — splash screen visuals only (no launcher logic changes)
+- src/app/icons/
 
 ### Icon Pipeline (build tooling)
-- 01_utilities/deploy/generate_icon.py
-- 01_utilities/deploy/icons/
-- 01_utilities/deploy/icon_source.svg
+- src/deploy/generate_icon.py
+- src/deploy/icons/
+- src/deploy/icon_source.svg
 
 ## Forbidden (never touch)
 - snappy_generator.py (owned by foam-snappymesh)

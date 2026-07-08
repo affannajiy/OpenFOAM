@@ -12,11 +12,11 @@ Owns the background mesh generation workflow (Tab 1). The CLI script is stable
 and must not be modified. This agent handles the GUI tab widget.
 
 ## Owned Files (may read AND write)
-- 01_utilities/app/ui_background_mesh.py
+- src/app/ui_background_mesh.py
 
 ## Reference Files (read only, never modify)
-- 01_utilities/app/generateBackgroundMesh.py — stable CLI, ground truth, do NOT touch
-- 01_utilities/app/ui_shared.py — read for shared helpers and styles
+- src/app/generateBackgroundMesh.py — stable CLI, ground truth, do NOT touch
+- src/app/ui_shared.py — read for shared helpers and styles
 - CLAUDE.md — read for architecture context
 
 ## Forbidden Files (never modify)

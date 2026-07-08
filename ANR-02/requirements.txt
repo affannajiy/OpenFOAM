@@ -1,0 +1,20 @@
+# Python dependencies for 01_utilities
+#
+# Install via apt (recommended in WSL):
+#   sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2
+#
+# Or via pip (add --break-system-packages on Ubuntu 24.04+):
+#   pip3 install -r requirements.txt --break-system-packages
+
+# GUI framework
+PyQt5>=5.15
+
+# Bounding box scaling and cell-count arithmetic (background mesh)
+numpy>=1.21
+
+# Template rendering for snappyHexMeshDict / blockMeshDict generation
+jinja2>=3.1
+
+# Optional — only needed for AUTO_ auto-refinement feature
+# trimesh uses numpy internally; both must be installed together
+trimesh>=4.0

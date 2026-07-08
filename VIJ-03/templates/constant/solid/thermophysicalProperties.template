@@ -1,0 +1,96 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  {{ openfoam_version }}                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "{{ location }}";
+    object      thermophysicalProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+thermoType
+{
+    type            heSolidThermo;
+    mixture         {{ mixture_type }};
+    transport       {{ transport_type }};
+    thermo          hConst;
+    equationOfState rhoConst;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+{% if kappa_type == "anisotropic" %}
+
+coordinateSystem
+{
+    type    cartesian;
+    origin  {{ coord_origin }};
+
+    rotation
+    {
+        type    axes;
+        e1      {{ coord_e1 }};
+        e2      {{ coord_e2 }};
+    }
+}
+{% endif %}
+
+mixture
+{
+{% if prop_type == "uniform" %}
+    specie
+    {
+        molWeight   {{ mol_weight }};
+    }
+    thermodynamics
+    {
+        Hf          0;
+        Sf          0;
+        Cp          {{ cp }};
+    }
+    transport
+    {
+        kappa       {{ kappa }};
+    }
+    equationOfState
+    {
+        rho         {{ rho }};
+    }
+{% else %}
+{% for zone in zones %}
+    {{ zone.name }}
+    {
+        specie
+        {
+            molWeight   {{ zone.mol_weight }};
+        }
+        thermodynamics
+        {
+            Hf          0;
+            Sf          0;
+            Cp          {{ zone.cp }};
+        }
+        transport
+        {
+            kappa       {{ zone.kappa }};
+        }
+        equationOfState
+        {
+            rho         {{ zone.rho }};
+        }
+    }
+{% if not loop.last %}
+
+{% endif %}
+{% endfor %}
+{% endif %}
+}
+
+// ************************************************************************* //
