@@ -67,6 +67,7 @@ Config dict schema (passed in from ui_snappy_hex._collect_data):
 """
 
 import os
+import glob
 import json
 import subprocess
 import shutil
@@ -74,7 +75,25 @@ import shutil
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _DEFAULTS_PATH = os.path.join(_HERE, "defaults.json")
 _TEMPLATE_DIR = os.path.join(_HERE, "templates")
-_OF_BASHRC = "/usr/lib/openfoam/openfoam2506/etc/bashrc"
+
+
+def _detect_of_bashrc() -> str:
+    """Bashrc of the OpenFOAM install in use — $WM_PROJECT_DIR (set because
+    the launcher sources it), else the newest /usr/lib/openfoam install,
+    else the 2506 default path.  Duplicated from ui_shared so this module
+    stays importable without PyQt5."""
+    proj = os.environ.get("WM_PROJECT_DIR", "").strip()
+    if proj:
+        cand = os.path.join(proj, "etc", "bashrc")
+        if os.path.isfile(cand):
+            return cand
+    installs = sorted(glob.glob("/usr/lib/openfoam/openfoam[0-9]*/etc/bashrc"))
+    if installs:
+        return installs[-1]
+    return "/usr/lib/openfoam/openfoam2506/etc/bashrc"
+
+
+_OF_BASHRC = _detect_of_bashrc()
 
 # Tiny offset added to locationInMesh so the point can never sit exactly on a
 # background-mesh cell face/edge (snappyHexMesh discards the mesh in that case).

@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
-    QScrollArea, QFrame, QFileDialog,
+    QScrollArea, QFrame,
     QCheckBox, QSizePolicy,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
@@ -45,6 +45,7 @@ from ui_shared import (
     build_card, to_wsl_path, PlusMinusSpinBox, ChevronComboBox, get_stl_zone_names,
     find_paraview_exe, make_info_icon, MessageBanner, scan_log_for_fix,
     load_prefs, save_prefs, msg_warning, msg_critical,
+    pick_open_files, pick_existing_dir,
 )
 
 try:
@@ -339,15 +340,6 @@ class SnappyHexWidget(QWidget):
         desc.setWordWrap(True)
         body.addWidget(desc)
 
-        level_hint = QLabel(
-            "Min / Max: both values set the min and max refinement level on this surface. "
-            "Use the SAME value for both (e.g. 2,2) for uniform refinement. "
-            "Use different values (e.g. 1,3) only when you want coarser cells away from edges "
-            "and finer cells at surface edges. For most heat-simulation cases, use (2,2) for all "
-            "surfaces to get consistent mesh density.")
-        level_hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; background: transparent;")
-        level_hint.setWordWrap(True)
-        body.addWidget(level_hint)
 
         # Wrapped in its own horizontal-scrolling area so the fixed-width
         # columns (Surface Type / Cell Zone / Min / Max / Vol Dir / V.Lvl)
@@ -405,7 +397,7 @@ class SnappyHexWidget(QWidget):
 
     def _browse_stl_into_case(self):
         """Copy chosen STL/OBJ files into constant/triSurface/ then refresh the table."""
-        paths, _ = QFileDialog.getOpenFileNames(
+        paths = pick_open_files(
             self, "Select STL/OBJ files", os.path.expanduser("~"),
             "Geometry files (*.stl *.obj);;All files (*.*)")
         if not paths:
@@ -509,12 +501,14 @@ class SnappyHexWidget(QWidget):
         hdr_row.setSpacing(4)
 
         def _hdr(text, w=None, tip=None):
-            # Column header = text label + optional ⓘ help badge, wrapped so the
-            # badge (not the whole header) is the hover target.  The badge owns
-            # the tooltip; the label stays transparent and tooltip-free, which
-            # avoids the transparent-owner tooltip leak.
+            # Column header = plain text cell; the whole cell carries the
+            # tooltip (per-column ⓘ badges made the header row too busy).
+            # The cell has a solid background + STYLE_TOOLTIP appended, so the
+            # transparent-owner tooltip leak does not apply.
             cell = QWidget()
-            cell.setStyleSheet("background: #EEF2F8;")
+            cell.setStyleSheet("background: #EEF2F8;" + STYLE_TOOLTIP)
+            if tip:
+                cell.setToolTip(tip)
             cl = QHBoxLayout(cell)
             cl.setContentsMargins(0, 0, 0, 0)
             cl.setSpacing(3)
@@ -526,13 +520,9 @@ class SnappyHexWidget(QWidget):
                 cell.setFixedWidth(w)
                 cl.setAlignment(Qt.AlignCenter)
                 cl.addWidget(lbl)
-                if tip:
-                    cl.addWidget(make_info_icon(tip, bg="#EEF2F8"))
             else:
                 cell.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
                 cl.addWidget(lbl)
-                if tip:
-                    cl.addWidget(make_info_icon(tip, bg="#EEF2F8"))
                 cl.addStretch()
             return cell
 
@@ -553,10 +543,14 @@ class SnappyHexWidget(QWidget):
             "shows in ParaView. Active only on FaceZone rows.")))
         hdr_row.addWidget(_hdr("MIN", 80, tip=(
             "Surface minimum refinement level.\n"
-            "Level 0 = background size; each level halves it.")))
+            "Level 0 = background size; each level halves it.\n"
+            "Same value in MIN and MAX (e.g. 2,2) = uniform refinement —\n"
+            "the usual choice for heat-simulation cases.")))
         hdr_row.addWidget(_hdr("MAX", 80, tip=(
             "Surface maximum refinement level.\n"
-            "Use the same value as MIN for uniform refinement.")))
+            "Use the same value as MIN for uniform refinement.\n"
+            "Different values (e.g. 1,3) only when you want finer\n"
+            "cells at surface edges and coarser away from them.")))
         hdr_row.addWidget(_hdr("VOL DIR", 112, tip=(
             "Where to add finer cells:\n"
             "None    = no volume refinement\n"
@@ -1361,7 +1355,7 @@ class SnappyHexWidget(QWidget):
         """Change… button on the CWD bar: switch to another case folder,
         clear the per-case caches, and rebuild everything that depends on it.
         Warns (but does not block) when constant/ or system/ is missing."""
-        d = QFileDialog.getExistingDirectory(self, "Select OpenFOAM case directory", self._cwd)
+        d = pick_existing_dir(self, "Select OpenFOAM case directory", self._cwd)
         if not d:
             return
         d = to_wsl_path(d)

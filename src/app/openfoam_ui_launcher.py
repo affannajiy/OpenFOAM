@@ -20,6 +20,15 @@ The setup script records a per-component status line into the sentinel file
 (`aptupdate=ok`, `packages=fail:100`, …) so the launcher can report exactly
 what failed and how to fix it manually.
 
+Self-healing installs: missing WSL → elevated `wsl --install --no-distribution`
+(with an optional one-time Windows restart offer); no distro → `wsl --install
+-d Ubuntu --no-launch` plus a guided first-run terminal for the UNIX account;
+WSL1 distro → offered in-place `wsl --set-version 2` conversion; missing WSLg
+display env → offered `wsl --update`.  Before first-time setup the launcher
+probes the download servers (bash /dev/tcp — no curl dependency) and free disk
+space so failures surface with the real reason instead of mid-apt.  Every
+error dialog has a "Copy Details" button (versions + log tail → clipboard).
+
 All WSL interaction targets one explicitly chosen distro (-d <name>): the
 registry default unless that is a utility distro (docker-desktop, rancher,
 podman), in which case the first Ubuntu* distro is used instead.
@@ -57,6 +66,14 @@ _UTILITY_DISTROS = {
 
 _WSL_BOOT_BUDGET_S = 90       # max wait for a cold WSL VM to boot
 _DISPLAY_BUDGET_S = 30        # max wait for the WSLg compositor
+_MIN_WSLG_BUILD = 21362       # first Windows build with WSLg support
+_WSL_INSTALL_BUDGET_S = 1200  # max wait for `wsl --install` / distro download
+_FIRSTRUN_BUDGET_S = 900      # max wait for Ubuntu first-run user creation
+_CONVERT_BUDGET_S = 1800      # max wait for WSL1 → WSL2 conversion
+
+# Free-space requirements (GiB) checked before first-time setup.
+_DISK_NEED_OPENFOAM_GB = 6
+_DISK_NEED_BASE_GB = 1
 
 # Path to the OpenFOAM bashrc that pre-flight confirmed exists.
 # Set by _detect_openfoam_bashrc(); read by main() to build the launch command.
@@ -149,6 +166,88 @@ def _wsl(cmd, timeout=15):
         return -2, '', f'WSL command timed out after {timeout}s'
     except Exception as exc:
         return -3, '', str(exc)
+
+
+def _decode_console(raw):
+    """Decode wsl.exe console bytes (UTF-16LE on most builds) to clean text."""
+    raw = raw or b''
+    if b'\x00' in raw:
+        text = raw.decode('utf-16-le', errors='replace')
+    else:
+        text = raw.decode(errors='replace')
+    return text.replace('\x00', '').strip()
+
+
+def _run_win_streaming(args, splash, status, timeout_s):
+    """Run a Windows-side command while keeping the splash alive.
+
+    Polls every second, updating the splash status with an elapsed-seconds
+    counter.  Returns (returncode, combined_output_text); rc -2 on timeout,
+    -1 if the executable is missing.
+    """
+    _log(f'win cmd: {" ".join(args)}')
+    try:
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            creationflags=_CREATE_NO_WINDOW,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        return -1, str(exc)
+    start = time.time()
+    while proc.poll() is None:
+        if time.time() - start > timeout_s:
+            proc.kill()
+            _log(f'win cmd timed out after {timeout_s}s')
+            return -2, ''
+        if splash is not None:
+            splash.set_status(f'{status} ({int(time.time() - start)}s)')
+            splash.pump()
+        time.sleep(1)
+    out = _decode_console(proc.stdout.read() if proc.stdout else b'')
+    _log(f'win cmd rc={proc.returncode} out={out[:200]!r}')
+    return proc.returncode, out
+
+
+def _run_elevated(exe, arg_list, splash, status, timeout_s=900):
+    """Run a Windows command elevated (UAC prompt) and wait for it.
+
+    Uses PowerShell Start-Process -Verb RunAs; the elevated process's own
+    output is not capturable, so only the exit code is meaningful.  A UAC
+    decline makes Start-Process throw → non-zero rc.
+    """
+    quoted = ','.join(f"'{a}'" for a in arg_list)
+    ps = (f"$p = Start-Process -FilePath '{exe}' -ArgumentList {quoted} "
+          f"-Verb RunAs -Wait -PassThru; exit $p.ExitCode")
+    return _run_win_streaming(
+        ['powershell', '-NoProfile', '-Command', ps],
+        splash, status, timeout_s)
+
+
+def _is_uac_declined(out):
+    """True when elevated-command output shows the user declined the UAC
+    prompt (PowerShell Start-Process throws 'canceled by the user',
+    Win32 error 0x800704C7 / 1223)."""
+    lowered = (out or '').lower()
+    return ('canceled by the user' in lowered
+            or 'cancelled by the user' in lowered
+            or '0x800704c7' in lowered
+            or 'error 1223' in lowered)
+
+
+def _windows_build():
+    """Return the Windows build number as int, or None if unreadable."""
+    if winreg is None:
+        return None
+    try:
+        k = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r'SOFTWARE\Microsoft\Windows NT\CurrentVersion')
+        b, _ = winreg.QueryValueEx(k, 'CurrentBuildNumber')
+        return int(b)
+    except (OSError, ValueError):
+        return None
 
 
 def _get_exe_dir():
@@ -245,7 +344,7 @@ class _Splash:
         self._bar = tk.Frame(self._track_frame, bg=self._RED, height=6)
         self._bar.place(x=0, y=0, relheight=1, width=0)
 
-        tk.Label(body, text='v1.0.5', font=('Segoe UI', 8),
+        tk.Label(body, text='v1.0.6', font=('Segoe UI', 8),
                  fg='#444444', bg=self._BG).pack(anchor='e', pady=(10, 0))
 
     def set_status(self, text):
@@ -282,6 +381,33 @@ class _Splash:
 # hide behind other windows.
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _diagnostics_report(title, msg):
+    """Build a plain-text diagnostics report for IT tickets / bug reports."""
+    lines = [
+        'OpenFOAM Mesh Utilities — launcher diagnostics',
+        time.strftime('%Y-%m-%d %H:%M:%S'),
+        f'Error: {title}',
+        '',
+        msg,
+        '',
+        f'Windows build: {_windows_build()}',
+        f'Target distro: {_DISTRO}',
+    ]
+    try:
+        r = subprocess.run([_WSL_EXE, '--version'], capture_output=True,
+                           timeout=10, creationflags=_CREATE_NO_WINDOW)
+        lines += ['', 'wsl --version:', _decode_console(r.stdout)]
+    except Exception as exc:
+        lines += ['', f'wsl --version failed: {exc}']
+    try:
+        with open(_LOG_PATH, encoding='utf-8', errors='replace') as f:
+            tail = f.readlines()[-60:]
+        lines += ['', f'Log tail ({_LOG_PATH}):'] + [ln.rstrip() for ln in tail]
+    except Exception:
+        lines += ['', '(log unavailable)']
+    return '\n'.join(lines)
+
+
 def _show_error(splash, title, msg):
     """Modal error dialog; the diagnostic log path is always appended.
 
@@ -290,7 +416,7 @@ def _show_error(splash, title, msg):
     of the screen); _choice_dialog centers over the splash."""
     _log(f'ERROR DIALOG: {title}')
     _choice_dialog(splash, title, msg + f'\n\nLog: {_LOG_PATH}',
-                   [('ok', 'OK')])
+                   [('ok', 'OK')], report=True)
 
 
 def _ask_yes_no(splash, title, msg, icon='info'):
@@ -300,12 +426,17 @@ def _ask_yes_no(splash, title, msg, icon='info'):
                           [('yes', 'Yes'), ('no', 'No')]) == 'yes'
 
 
-def _choice_dialog(splash, title, msg, buttons):
+def _choice_dialog(splash, title, msg, buttons, report=False, copy_cmd=None):
     """Modal dialog with arbitrary buttons.
 
     buttons: list of (key, label) tuples, shown left to right.
     Returns the key of the clicked button; closing the window with X
     returns the last button's key (the dismiss action).
+    report=True adds a "Copy Details" button that copies a full
+    diagnostics report (versions + log tail) to the clipboard without
+    closing the dialog — for pasting into IT tickets.
+    copy_cmd='<command>' adds a "Copy Command" button that copies that
+    exact command to the clipboard — for pasting into an admin PowerShell.
     """
     _log(f'CHOICE DIALOG: {title}')
     top = tk.Toplevel(splash.root)
@@ -332,6 +463,37 @@ def _choice_dialog(splash, title, msg, buttons):
         tk.Button(btn_row, text=label, width=max(12, len(label) + 2),
                   command=lambda k=key: _pick(k)).pack(side='left',
                                                        padx=(0, 8))
+
+    if report:
+        def _copy_details():
+            text = _diagnostics_report(title, msg)
+            try:
+                top.clipboard_clear()
+                top.clipboard_append(text)
+                copy_btn.config(text='Copied ✓')
+                top.after(1500,
+                          lambda: copy_btn.config(text='Copy Details'))
+            except Exception as exc:
+                _log(f'copy details failed: {exc}')
+
+        copy_btn = tk.Button(btn_row, text='Copy Details', width=14,
+                             command=_copy_details)
+        copy_btn.pack(side='right')
+
+    if copy_cmd:
+        def _copy_command():
+            try:
+                top.clipboard_clear()
+                top.clipboard_append(copy_cmd)
+                cmd_btn.config(text='Copied ✓')
+                top.after(1500,
+                          lambda: cmd_btn.config(text='Copy Command'))
+            except Exception as exc:
+                _log(f'copy command failed: {exc}')
+
+        cmd_btn = tk.Button(btn_row, text='Copy Command', width=14,
+                            command=_copy_command)
+        cmd_btn.pack(side='right', padx=(0, 8))
 
     top.protocol('WM_DELETE_WINDOW', lambda: _pick(buttons[-1][0]))
 
@@ -541,6 +703,231 @@ def _probe_wslg_display(timeout_seconds=_DISPLAY_BUDGET_S, splash=None):
             splash.set_status(f'Waiting for display… ({remaining}s)')
             splash.pump()
         time.sleep(1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WSL / distro install & repair flows
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _manual_install_guide(splash, title, what, command, declined):
+    """Numbered manual-install instructions shown when an automatic install
+    could not run (admin permission declined, blocked by policy, or failed).
+    The caller closes the launcher afterwards; on the next run the launcher
+    re-checks and continues automatically."""
+    if declined:
+        intro = (f'{what} needs administrator permission, and the '
+                 'permission prompt was declined (or this account does '
+                 'not have administrator rights).')
+    else:
+        intro = (f'{what} could not be completed automatically.')
+    _choice_dialog(
+        splash, title,
+        intro + '\n\n'
+        'To finish manually:\n'
+        '  1. If this is a company laptop without admin rights, ask your\n'
+        '     IT administrator to do steps 2–4 (use "Copy Details" to\n'
+        '     include diagnostics in your request).\n'
+        '  2. Open PowerShell as Administrator (right-click Start →\n'
+        '     "Terminal (Admin)").\n'
+        '  3. Run:\n'
+        f'       {command}\n'
+        '     ("Copy Command" puts it on the clipboard.)\n'
+        '  4. Restart the computer if asked to.\n'
+        '  5. Run this launcher again — it will detect the install and\n'
+        '     continue with the remaining setup automatically.'
+        f'\n\nLog: {_LOG_PATH}',
+        [('close', 'Close')], report=True, copy_cmd=command)
+
+
+def _install_wsl(splash):
+    """Install the WSL platform itself (elevated, no distro).
+
+    Returns 'ok' (retry checks), 'reboot' (user chose to restart now — the
+    caller exits), 'declined' (UAC prompt refused / no admin rights) or
+    'fail'.
+    """
+    rc, out = _run_elevated(
+        'wsl.exe', ['--install', '--no-distribution'],
+        splash, 'Installing WSL — approve the administrator prompt',
+        timeout_s=_WSL_INSTALL_BUDGET_S)
+    if rc != 0:
+        _log(f'wsl --install rc={rc} out={out[:300]!r}')
+        return 'declined' if _is_uac_declined(out) else 'fail'
+    # Enabling VirtualMachinePlatform for the first time usually needs one
+    # Windows restart before wsl.exe becomes functional.
+    choice = _choice_dialog(
+        splash, 'WSL Installed — Restart Recommended',
+        'WSL was installed. A one-time Windows restart is usually\n'
+        'required to finish enabling it.\n\n'
+        '"Restart Now" restarts this computer in 5 seconds — save your\n'
+        'work in other applications first. After the restart, run this\n'
+        'launcher again and it will continue automatically.',
+        [('reboot', 'Restart Now'), ('later', 'Continue Without Restart')])
+    if choice == 'reboot':
+        try:
+            subprocess.Popen(['shutdown', '/r', '/t', '5'],
+                             creationflags=_CREATE_NO_WINDOW)
+        except Exception as exc:
+            _log(f'shutdown failed: {exc}')
+            return 'fail'
+        return 'reboot'
+    return 'ok'
+
+
+def _install_ubuntu(splash):
+    """Download/register Ubuntu, then guide the user through first-run
+    (UNIX username + password) in a visible terminal.
+
+    Returns 'ok', 'declined' (UAC prompt refused) or 'fail'.
+    """
+    rc, out = _run_win_streaming(
+        [_WSL_EXE, '--install', '-d', 'Ubuntu', '--no-launch'],
+        splash, 'Downloading Ubuntu — this can take several minutes',
+        timeout_s=_WSL_INSTALL_BUDGET_S)
+    if rc != 0:
+        lowered = out.lower()
+        if 'elevat' in lowered or 'administrator' in lowered:
+            rc, out = _run_elevated(
+                'wsl.exe', ['--install', '-d', 'Ubuntu', '--no-launch'],
+                splash, 'Installing Ubuntu — approve the administrator prompt',
+                timeout_s=_WSL_INSTALL_BUDGET_S)
+        if rc != 0:
+            _log(f'ubuntu install failed: {out[:300]}')
+            return 'declined' if _is_uac_declined(out) else 'fail'
+
+    _choice_dialog(
+        splash, 'Ubuntu — One-Time Setup',
+        'Ubuntu is installed. A terminal window will now open to create\n'
+        'your Linux user account:\n\n'
+        '  1. Enter a username (lowercase letters, e.g. your first name)\n'
+        '  2. Choose a password and type it twice (typing is invisible —\n'
+        '     that is normal)\n'
+        '  3. When you see the green $ prompt, you can close the terminal\n\n'
+        'Remember this password — it is asked for again during setup.',
+        [('ok', 'Open Terminal')])
+
+    try:
+        subprocess.Popen(['wt.exe', '--', 'wsl', '-d', 'Ubuntu'],
+                         creationflags=_CREATE_NO_WINDOW)
+    except (FileNotFoundError, OSError):
+        try:
+            subprocess.Popen(['cmd.exe', '/c', 'start', '',
+                              'wsl', '-d', 'Ubuntu'],
+                             creationflags=_CREATE_NO_WINDOW)
+        except (FileNotFoundError, OSError):
+            return 'fail'
+
+    # First-run is done once a real (non-root) user home exists.
+    start = time.time()
+    while time.time() - start < _FIRSTRUN_BUDGET_S:
+        rc, out, _ = _wsl_named('Ubuntu', 'ls /home 2>/dev/null | head -1',
+                                timeout=10)
+        if rc == 0 and out.strip():
+            _log(f'ubuntu first-run done (user {out.strip()!r})')
+            return 'ok'
+        remaining = int(_FIRSTRUN_BUDGET_S - (time.time() - start))
+        splash.set_status('Waiting for Ubuntu account creation — follow '
+                          f'the terminal… ({remaining}s)')
+        splash.pump()
+        time.sleep(3)
+    _log('ubuntu first-run timed out')
+    return 'fail'
+
+
+def _wsl_named(distro, cmd, timeout=15):
+    """Like _wsl() but targets an explicit distro name."""
+    try:
+        r = subprocess.run(
+            [_WSL_EXE, '-d', distro, '--exec', 'bash', '-c', cmd],
+            capture_output=True, text=True, timeout=timeout,
+            creationflags=_CREATE_NO_WINDOW)
+        return r.returncode, r.stdout.strip(), r.stderr.strip()
+    except Exception as exc:
+        return -3, '', str(exc)
+
+
+def _distro_wsl_version(name):
+    """Return 1 or 2 for the named distro from `wsl -l -v`, or None."""
+    try:
+        r = subprocess.run([_WSL_EXE, '-l', '-v'], capture_output=True,
+                           timeout=15, creationflags=_CREATE_NO_WINDOW)
+    except Exception:
+        return None
+    for ln in _decode_console(r.stdout).splitlines():
+        parts = ln.replace('*', ' ').split()
+        if len(parts) >= 3 and parts[0].lower() == (name or '').lower():
+            try:
+                return int(parts[-1])
+            except ValueError:
+                return None
+    return None
+
+
+def _convert_to_wsl2(splash):
+    """Convert the selected distro from WSL1 to WSL2. Returns True on success."""
+    rc, out = _run_win_streaming(
+        [_WSL_EXE, '--set-version', _DISTRO, '2'],
+        splash, f'Converting {_DISTRO} to WSL2 — this can take a while',
+        timeout_s=_CONVERT_BUDGET_S)
+    if rc != 0:
+        _log(f'set-version failed: {out[:300]}')
+    return rc == 0
+
+
+def _wsl_update(splash):
+    """Run `wsl --update` then `wsl --shutdown`. Returns True on success."""
+    rc, out = _run_win_streaming(
+        [_WSL_EXE, '--update'],
+        splash, 'Updating WSL', timeout_s=600)
+    if rc != 0:
+        _log(f'wsl --update failed: {out[:300]}')
+        return False
+    _restart_wsl(splash)
+    return True
+
+
+def _probe_network(need_openfoam):
+    """TCP-reachability check for the hosts setup will download from.
+
+    Uses bash's /dev/tcp (no curl/wget dependency on fresh images).
+    Returns a list of unreachable host names (empty = all fine).
+    """
+    hosts = [('archive.ubuntu.com', 80)]
+    if need_openfoam:
+        hosts.append(('dl.openfoam.com', 443))
+    blocked = []
+    for host, port in hosts:
+        rc, out, _ = _wsl(
+            f'timeout 6 bash -c "exec 3<>/dev/tcp/{host}/{port}" '
+            f'2>/dev/null && echo ok || echo blocked',
+            timeout=12)
+        if out.strip() != 'ok':
+            blocked.append(host)
+            _log(f'network probe: {host}:{port} unreachable')
+    return blocked
+
+
+def _check_disk_space(need_openfoam):
+    """Return a warning string if free space looks too small, else ''."""
+    need_gb = _DISK_NEED_OPENFOAM_GB if need_openfoam else _DISK_NEED_BASE_GB
+    problems = []
+    rc, out, _ = _wsl("df -k --output=avail / | tail -1", timeout=10)
+    if rc == 0 and out.strip().isdigit():
+        free_gb = int(out.strip()) / (1024 * 1024)
+        if free_gb < need_gb:
+            problems.append(
+                f'Linux (WSL) disk: {free_gb:.1f} GB free, '
+                f'about {need_gb} GB needed')
+    try:
+        import shutil
+        free_gb = shutil.disk_usage('C:\\').free / (1024 ** 3)
+        if free_gb < need_gb:
+            problems.append(
+                f'Windows C: drive: {free_gb:.1f} GB free, '
+                f'about {need_gb} GB needed (WSL storage lives on C:)')
+    except Exception:
+        pass
+    return '\n'.join(problems)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -848,25 +1235,35 @@ def _do_checks(splash, consent_given, install_attempts):
         splash.set_progress(step[0] / n)
         _log(f'step: {label}')
 
+    # ── Step 0: Windows build gate (WSLg needs 21362+) ──────────────────────
+    build = _windows_build()
+    if build is not None and build < _MIN_WSLG_BUILD:
+        return 'fatal', 'Windows Version Too Old', (
+            f'This Windows build ({build}) does not support WSLg, which\n'
+            'the GUI needs to display Linux windows.\n\n'
+            'Requirement: Windows 11, or Windows 10 build 21362 or later.\n\n'
+            'Update Windows, then run this launcher again.'
+        )
+
     # ── Step 1: pick a distro ────────────────────────────────────────────────
     tick('Detecting WSL distribution…')
     distro_state = _detect_distro()
     if distro_state == 'no-wsl':
-        return 'fatal', 'WSL Not Found', (
-            'wsl.exe was not found on this machine.\n\n'
-            'Fix: enable WSL2 from PowerShell (run as Administrator):\n'
-            '  wsl --install\n\n'
-            'Restart Windows once installation finishes, then run this\n'
-            'launcher again.\n\n'
-            'Contact your IT administrator if WSL is blocked by policy.'
+        return 'install-wsl', 'WSL Not Installed', (
+            'WSL (Windows Subsystem for Linux) is not installed on this\n'
+            'machine. The GUI runs inside WSL, so it is required.\n\n'
+            '"Install WSL" below installs it for you — you will see an\n'
+            'administrator (UAC) prompt, and a one-time Windows restart\n'
+            'may be needed afterwards.\n\n'
+            'Contact your IT administrator if the install is blocked by '
+            'policy.'
         )
     if distro_state == 'no-distro':
-        return 'fatal', 'No Linux Distribution Found', (
+        return 'install-distro', 'No Linux Distribution Found', (
             'WSL is installed but no usable Linux distribution was found\n'
             '(Docker/Rancher utility distros cannot run the GUI).\n\n'
-            'Fix: install Ubuntu from PowerShell:\n'
-            '  wsl --install -d Ubuntu\n\n'
-            'Then run this launcher again.'
+            '"Install Ubuntu" below downloads Ubuntu and walks you\n'
+            'through creating a Linux user account (a few minutes).'
         )
 
     # ── Step 2: WSL reachable (patient — boots the VM if cold) ──────────────
@@ -886,6 +1283,17 @@ def _do_checks(splash, consent_given, install_attempts):
             'and tries again — no need to restart your computer.'
         ), True
 
+    # ── Step 2b: WSL1 distros can't run WSLg — offer conversion ─────────────
+    wsl_ver = _distro_wsl_version(_DISTRO)
+    if wsl_ver == 1:
+        return 'convert-wsl1', 'Distribution Uses WSL1', (
+            f'The Linux distribution "{_DISTRO}" runs under WSL1, which\n'
+            'cannot display GUI windows (no WSLg support).\n\n'
+            '"Convert to WSL2" below upgrades it in place. This can take\n'
+            'several minutes and the distribution is unavailable while it\n'
+            'runs, but no files are lost.'
+        )
+
     # ── Step 3: WSLg display environment ─────────────────────────────────────
     tick('Checking WSLg display…')
     display_env = False
@@ -900,17 +1308,14 @@ def _do_checks(splash, consent_given, install_attempts):
         splash.pump()
         time.sleep(2)
     if not display_env:
-        return 'retry', 'No Display Available', (
+        return 'retry-update', 'No Display Available', (
             'Neither $DISPLAY nor $WAYLAND_DISPLAY is set inside WSL.\n\n'
-            'The GUI requires WSLg (Windows Subsystem for Linux GUI).\n\n'
-            'Requirements:\n'
-            '  • Windows 11, or Windows 10 Build 21362 or later\n'
-            '  • WSL2 (not WSL1)\n\n'
-            'If your Windows version qualifies, update WSL from PowerShell:\n'
-            '  wsl --update\n'
-            'then use "Restart WSL" below.\n\n'
+            'The GUI requires WSLg (Windows Subsystem for Linux GUI).\n'
+            'An outdated WSL is the usual cause.\n\n'
+            '"Update WSL" below runs wsl --update and restarts WSL —\n'
+            'this usually fixes it, no computer restart needed.\n\n'
             'Contact your IT administrator if the problem persists.'
-        ), True
+        )
 
     # ── Step 3b: WSLg compositor readiness ──────────────────────────────────
     tick('Waiting for display server…')
@@ -991,6 +1396,44 @@ def _do_checks(splash, consent_given, install_attempts):
             apt = imp_to_apt.get(m)
             bullets.append(f'  • {m}' + (f'  ({apt})' if apt else ''))
         items = '\n'.join(bullets)
+
+        # Fail fast, with the real reason, before opening the setup terminal:
+        # a blocked mirror or a full disk otherwise surfaces minutes into apt.
+        splash.set_status('Checking network and disk space…')
+        splash.pump()
+        blocked = _probe_network(install_openfoam)
+        if blocked:
+            hosts = '\n'.join(f'  • {h}' for h in blocked)
+            go = _choice_dialog(
+                splash, 'Download Servers Unreachable',
+                'Setup needs to download packages, but these servers are\n'
+                'not reachable from WSL:\n\n'
+                f'{hosts}\n\n'
+                'A corporate proxy or firewall is the usual cause —\n'
+                'contact IT, or connect to a different network.\n\n'
+                'You can still try anyway (it will fail if the servers\n'
+                'really are blocked).',
+                [('cancel', 'Cancel Setup'), ('anyway', 'Try Anyway')],
+                report=True)
+            if go == 'cancel':
+                return 'fatal', 'Setup Cancelled', (
+                    'Setup was cancelled because the download servers are\n'
+                    'unreachable. Run the launcher again once the network\n'
+                    'issue is resolved.'
+                )
+        disk_msg = _check_disk_space(install_openfoam)
+        if disk_msg:
+            go = _choice_dialog(
+                splash, 'Low Disk Space',
+                'There may not be enough free disk space for setup:\n\n'
+                f'{disk_msg}\n\n'
+                'Free up space, or continue anyway at your own risk.',
+                [('cancel', 'Cancel Setup'), ('anyway', 'Continue Anyway')])
+            if go == 'cancel':
+                return 'fatal', 'Setup Cancelled', (
+                    'Setup was cancelled due to low disk space. Free up\n'
+                    'space and run the launcher again.'
+                )
 
         if not consent_given:
             ok = _ask_yes_no(
@@ -1076,6 +1519,87 @@ def _run_checks(splash):
             _show_error(splash, result[1], result[2])
             return False
 
+        if kind == 'install-wsl':
+            choice = _choice_dialog(
+                splash, result[1], result[2] + f'\n\nLog: {_LOG_PATH}',
+                [('install', 'Install WSL'), ('close', 'Close')],
+                report=True)
+            if choice != 'install':
+                return False
+            outcome = _install_wsl(splash)
+            if outcome == 'reboot':
+                return False          # machine is restarting
+            if outcome in ('declined', 'fail'):
+                _manual_install_guide(
+                    splash,
+                    'Administrator Permission Needed'
+                    if outcome == 'declined' else 'WSL Install Failed',
+                    'Installing WSL', 'wsl --install',
+                    declined=(outcome == 'declined'))
+                return False
+            splash.set_progress(0.0)
+            continue
+
+        if kind == 'install-distro':
+            choice = _choice_dialog(
+                splash, result[1], result[2] + f'\n\nLog: {_LOG_PATH}',
+                [('install', 'Install Ubuntu'), ('close', 'Close')],
+                report=True)
+            if choice != 'install':
+                return False
+            outcome = _install_ubuntu(splash)
+            if outcome != 'ok':
+                _manual_install_guide(
+                    splash,
+                    'Administrator Permission Needed'
+                    if outcome == 'declined'
+                    else 'Ubuntu Install Did Not Finish',
+                    'Installing Ubuntu', 'wsl --install -d Ubuntu',
+                    declined=(outcome == 'declined'))
+                return False
+            splash.set_progress(0.0)
+            continue
+
+        if kind == 'convert-wsl1':
+            choice = _choice_dialog(
+                splash, result[1], result[2] + f'\n\nLog: {_LOG_PATH}',
+                [('convert', 'Convert to WSL2'), ('close', 'Close')],
+                report=True)
+            if choice != 'convert':
+                return False
+            if not _convert_to_wsl2(splash):
+                _manual_install_guide(
+                    splash, 'Conversion Failed',
+                    f'Converting "{_DISTRO}" to WSL2',
+                    f'wsl --set-version {_DISTRO} 2',
+                    declined=False)
+                return False
+            splash.set_progress(0.0)
+            continue
+
+        if kind == 'retry-update':
+            _, title, msg = result
+            choice = _choice_dialog(
+                splash, title, msg + f'\n\nLog: {_LOG_PATH}',
+                [('update', 'Update WSL'), ('retry', 'Try Again'),
+                 ('close', 'Close')],
+                report=True)
+            if choice == 'update':
+                if not _wsl_update(splash):
+                    _show_error(splash, 'WSL Update Failed', (
+                        'wsl --update did not complete.\n\n'
+                        'Try manually from PowerShell:\n'
+                        '  wsl --update\n\n'
+                        'Contact your IT administrator if updates are '
+                        'blocked by policy.'
+                    ))
+                splash.set_progress(0.0)
+                continue
+            if choice == 'retry':
+                splash.set_progress(0.0)
+                continue
+            return False
+
         if kind == 'install-ok':
             consent_given = True
             install_attempts += 1
@@ -1087,7 +1611,8 @@ def _run_checks(splash):
             choice = _choice_dialog(
                 splash, result[1],
                 result[2] + f'\n\nLog: {_LOG_PATH}',
-                [('again', 'Run Setup Again'), ('close', 'Close')])
+                [('again', 'Run Setup Again'), ('close', 'Close')],
+                report=True)
             if choice == 'again':
                 consent_given = True
                 install_attempts += 1
@@ -1102,7 +1627,8 @@ def _run_checks(splash):
                 buttons.append(('restart', 'Restart WSL'))
             buttons.append(('close', 'Close'))
             choice = _choice_dialog(
-                splash, title, msg + f'\n\nLog: {_LOG_PATH}', buttons)
+                splash, title, msg + f'\n\nLog: {_LOG_PATH}', buttons,
+                report=True)
             if choice == 'retry':
                 splash.set_progress(0.0)
                 continue
@@ -1228,6 +1754,12 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
+
+
+
 
 
 

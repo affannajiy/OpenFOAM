@@ -24,8 +24,11 @@ from typing import Optional, Callable
 
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
                               QLineEdit, QFrame, QComboBox, QLabel, QSizePolicy,
-                              QMessageBox, QApplication)
-from PyQt5.QtCore import Qt, pyqtSignal, QEvent, QTimer
+                              QMessageBox, QApplication, QFileDialog,
+                              QFileIconProvider, QToolButton)
+from PyQt5.QtCore import (Qt, pyqtSignal, QEvent, QTimer, QObject, QEventLoop,
+                          QFileInfo, QDir)
+from PyQt5.QtGui import QPixmap, QPainter, QPen, QColor, QIcon
 
 # ── 1. Colour tokens ──────────────────────────────────────────────────────────
 # Brand / structural colours
@@ -55,7 +58,23 @@ LOG_CMD       = "#64748B"   # lines tagged "cmd" (the command that was run)
 # Full path to the OpenFOAM bashrc that must be sourced before any OF command.
 # Every subprocess call prepends "source OF_BASHRC &&" because the OF environment
 # is not inherited by child processes launched from the Python GUI.
-OF_BASHRC      = "/usr/lib/openfoam/openfoam2506/etc/bashrc"
+# Resolved once at import: the install the GUI was launched under
+# ($WM_PROJECT_DIR, set because the launcher sources the bashrc), else the
+# newest /usr/lib/openfoam install, else the 2506 default path.
+
+def _detect_of_bashrc() -> str:
+    proj = os.environ.get("WM_PROJECT_DIR", "").strip()
+    if proj:
+        cand = os.path.join(proj, "etc", "bashrc")
+        if os.path.isfile(cand):
+            return cand
+    installs = sorted(glob.glob("/usr/lib/openfoam/openfoam[0-9]*/etc/bashrc"))
+    if installs:
+        return installs[-1]
+    return "/usr/lib/openfoam/openfoam2506/etc/bashrc"
+
+
+OF_BASHRC      = _detect_of_bashrc()
 
 # Valid patch/boundary types that snappyHexMesh understands.
 BOUNDARY_TYPES = ["wall", "patch", "faceZone"]
@@ -221,6 +240,13 @@ STYLE_SPINBOX = f"""
     }}
 """
 
+# White ✓ glyph for the checked indicator — QSS cannot draw glyphs itself, so
+# a pre-rendered PNG ships in icons/ (see deploy notes). Forward slashes: Qt
+# url() requires them even on Windows, and the app runs under WSL anyway.
+_CHECK_PNG = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "icons", "check_16.png"
+).replace("\\", "/")
+
 STYLE_CHECKBOX = f"""
     QCheckBox {{
         color: {TEXT_PRIMARY};
@@ -239,6 +265,11 @@ STYLE_CHECKBOX = f"""
     QCheckBox::indicator:checked {{
         background: {KS_RED};
         border-color: {KS_RED};
+        image: url({_CHECK_PNG});
+    }}
+    QCheckBox::indicator:checked:disabled {{
+        background: {BORDER};
+        border-color: {BORDER};
     }}
     QCheckBox::indicator:hover {{
         border-color: {TEXT_MUTED};
@@ -664,43 +695,217 @@ def save_prefs(updates: dict):
         pass
 
 
-# ── 3c. Centered message boxes ────────────────────────────────────────────────
+# ── 3c. In-window popups (message boxes + file pickers) ──────────────────────
 #
-# The WSLg/Weston compositor ignores Qt's default transient-window placement,
-# so a static QMessageBox.warning(...) pops up at the top-left of the screen.
-# An explicit move() IS honoured (that's how the main window centres itself),
-# so these helpers build a QMessageBox instance and re-centre it over the
-# parent's top-level window one event-loop tick after it is shown.
+# Weston (WSLg's window manager) forcibly re-places every managed top-level
+# window at a screen corner one frame after it maps — even when positioned
+# before show() — so any real dialog flashes at the corner first.  Bypassing
+# the window manager (X11BypassWindowManagerHint) avoids the flash but breaks
+# input focus, which made boxes unclickable and locked the whole app.
+#
+# The robust fix is to never create a top-level dialog at all: popups are
+# rendered as an in-window OVERLAY — a child widget of the main window with a
+# dimmed backdrop and a centred card.  Weston never sees a child widget, so
+# the popup appears instantly at the centre, gets input like any other
+# widget, and cannot be mis-placed, lose focus, or get stuck.
 
-def _center_over_parent(box: QMessageBox, parent):
-    """Move *box* so its centre matches the parent window's centre (or the
-    primary screen's centre when there is no parent)."""
-    try:
-        if parent is not None and parent.window() is not None:
-            target = parent.window().frameGeometry().center()
+class _PopupOverlay(QWidget):
+    """Dimmed full-window backdrop that centres a content card and runs a
+    local event loop until the card resolves. Child of the main window —
+    never a top-level window, so WSLg/Weston cannot interfere with it."""
+
+    def __init__(self, host_window):
+        super().__init__(host_window)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet("background: rgba(0, 0, 0, 96);" + STYLE_TOOLTIP)
+        self.setGeometry(host_window.rect())
+        host_window.installEventFilter(self)   # track window resizes
+        self._loop = QEventLoop(self)
+        self.result = None
+
+    def eventFilter(self, obj, event):
+        if obj is self.parent() and event.type() == QEvent.Resize:
+            self.setGeometry(self.parent().rect())
+            self._recenter_card()
+        return False
+
+    def resizeEvent(self, event):
+        self._recenter_card()
+        super().resizeEvent(event)
+
+    def _recenter_card(self):
+        for child in self.children():
+            if isinstance(child, QWidget) and child.isVisible():
+                g = child.geometry()
+                g.moveCenter(self.rect().center())
+                child.setGeometry(g)
+
+    def mousePressEvent(self, event):
+        event.accept()   # swallow clicks on the backdrop → modal behaviour
+
+    def finish(self, result):
+        self.result = result
+        self._loop.quit()
+
+    def run(self, card):
+        """Show overlay + centred *card*, block in a local event loop until
+        finish() is called, then tear everything down. Returns .result."""
+        card.adjustSize()
+        g = card.geometry()
+        g.moveCenter(self.rect().center())
+        card.setGeometry(g)
+        self.show()
+        self.raise_()
+        card.show()
+        card.setFocus()
+        try:
+            self._loop.exec_()
+        finally:
+            try:
+                self.parent().removeEventFilter(self)
+            except Exception:
+                pass
+            self.hide()
+            self.deleteLater()
+        return self.result
+
+
+def _host_window(parent):
+    """Top-level widget to attach the overlay to. Falls back to the active
+    window so popups still work when a worker has no widget parent."""
+    if parent is not None and parent.window() is not None:
+        return parent.window()
+    return QApplication.activeWindow()
+
+
+class _MessageCard(QFrame):
+    """The white centred card of a message popup: icon + title + text +
+    buttons. Esc presses the escape button; Enter presses the default."""
+
+    _ICONS = {
+        QMessageBox.Information: ("i",  "#2563EB"),
+        QMessageBox.Warning:     ("!",  "#D97706"),
+        QMessageBox.Critical:    ("✕", KS_RED),
+        QMessageBox.Question:    ("?",  "#2563EB"),
+    }
+
+    def __init__(self, overlay, icon, title, text, buttons, default):
+        super().__init__(overlay)
+        self._overlay = overlay
+        self.setObjectName("popupCard")
+        self.setStyleSheet(f"""
+            QFrame#popupCard {{
+                background: {BG_CARD};
+                border: 1px solid {BORDER_STRONG};
+                border-radius: 8px;
+            }}
+            QLabel {{ background: transparent; border: none; }}
+        """ + STYLE_TOOLTIP)
+        self.setMinimumWidth(360)
+        self.setMaximumWidth(560)
+
+        glyph, colour = self._ICONS.get(icon, ("i", "#2563EB"))
+        icon_lbl = QLabel(glyph, self)
+        icon_lbl.setFixedSize(34, 34)
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        icon_lbl.setStyleSheet(
+            f"background: {colour}; color: {TEXT_WHITE}; border-radius: 17px;"
+            f"font-size: 16px; font-weight: bold;")
+
+        title_lbl = QLabel(title, self)
+        title_lbl.setStyleSheet(
+            f"color: {TEXT_PRIMARY}; font-size: 14px; font-weight: bold;")
+        title_lbl.setWordWrap(True)
+
+        text_lbl = QLabel(text, self)
+        text_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px;")
+        text_lbl.setWordWrap(True)
+        text_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        head = QHBoxLayout()
+        head.setSpacing(12)
+        head.addWidget(icon_lbl, 0, Qt.AlignTop)
+        body = QVBoxLayout()
+        body.setSpacing(6)
+        body.addWidget(title_lbl)
+        body.addWidget(text_lbl)
+        head.addLayout(body, 1)
+
+        self._default_btn = None
+        self._escape_btn = None
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch(1)
+        # Standard order: affirmative first, escape last.
+        for role in (QMessageBox.Yes, QMessageBox.Ok,
+                     QMessageBox.No, QMessageBox.Cancel):
+            if not (buttons & role):
+                continue
+            label = {QMessageBox.Yes: "Yes", QMessageBox.Ok: "OK",
+                     QMessageBox.No: "No", QMessageBox.Cancel: "Cancel"}[role]
+            primary = role in (QMessageBox.Yes, QMessageBox.Ok)
+            btn = QPushButton(label, self)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumWidth(84)
+            if primary:
+                btn.setStyleSheet(f"""
+                    QPushButton {{ background: {KS_RED}; color: {TEXT_WHITE};
+                        border: none; border-radius: 4px; padding: 7px 18px;
+                        font-size: 12px; font-weight: bold; }}
+                    QPushButton:hover {{ background: {KS_RED_DARK}; }}
+                """ + STYLE_TOOLTIP)
+            else:
+                btn.setStyleSheet(f"""
+                    QPushButton {{ background: {BG_CARD}; color: {TEXT_PRIMARY};
+                        border: 1px solid {BORDER_STRONG}; border-radius: 4px;
+                        padding: 7px 18px; font-size: 12px; }}
+                    QPushButton:hover {{ background: {BG_SUBTLE}; }}
+                """ + STYLE_TOOLTIP)
+            btn.clicked.connect(lambda _=False, r=role: overlay.finish(r))
+            btn_row.addWidget(btn)
+            if role in (QMessageBox.No, QMessageBox.Cancel):
+                self._escape_btn = role
+            if default == role or (default == QMessageBox.NoButton
+                                   and self._default_btn is None and primary):
+                self._default_btn = role
+                btn.setFocus()
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 18, 20, 16)
+        lay.setSpacing(14)
+        lay.addLayout(head)
+        lay.addLayout(btn_row)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self._overlay.finish(self._escape_btn if self._escape_btn
+                                 else self._default_btn)
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self._overlay.finish(self._default_btn)
         else:
-            target = QApplication.primaryScreen().availableGeometry().center()
-        frame = box.frameGeometry()
-        frame.moveCenter(target)
-        box.move(frame.topLeft())
-    except Exception:
-        pass  # placement is cosmetic — never let it break the dialog
+            super().keyPressEvent(event)
 
 
 def _run_box(parent, icon, title, text,
              buttons=QMessageBox.Ok, default=QMessageBox.NoButton):
-    """Build, centre and exec a QMessageBox; returns the clicked button."""
-    box = QMessageBox(parent)
-    box.setIcon(icon)
-    box.setWindowTitle(title)
-    box.setText(text)
-    box.setStandardButtons(buttons)
-    if default != QMessageBox.NoButton:
-        box.setDefaultButton(default)
-    # singleShot(0, ...) runs after show() inside exec_(), when the box has
-    # its final size — centring before show() would use a wrong geometry.
-    QTimer.singleShot(0, lambda: _center_over_parent(box, parent))
-    return box.exec_()
+    """Show an in-window message popup; returns the clicked button role.
+    Falls back to a plain QMessageBox when no host window exists (e.g. a
+    popup fired before the main window is shown)."""
+    host = _host_window(parent)
+    if host is None or not host.isVisible():
+        box = QMessageBox(parent)
+        box.setIcon(icon)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setStandardButtons(buttons)
+        if default != QMessageBox.NoButton:
+            box.setDefaultButton(default)
+        return box.exec_()
+    overlay = _PopupOverlay(host)
+    card = _MessageCard(overlay, icon, title, text, buttons, default)
+    result = overlay.run(card)
+    return result if result is not None else QMessageBox.Cancel
 
 
 def msg_info(parent, title, text):
@@ -720,6 +925,327 @@ def msg_question(parent, title, text, default_no=False) -> bool:
     default = QMessageBox.No if default_no else QMessageBox.NoButton
     return _run_box(parent, QMessageBox.Question, title, text,
                     QMessageBox.Yes | QMessageBox.No, default) == QMessageBox.Yes
+
+
+# File pickers use the same overlay: a non-native QFileDialog re-parented as
+# a plain child widget (Qt.Widget flag) inside the overlay, so it too can
+# never be mis-placed by Weston. Its own accepted/rejected signals resolve
+# the overlay's event loop. The stock chrome (sidebar, Look-in row, Files-of-
+# type row, icon toolbar) is hidden and replaced by a card-style header with
+# an editable path field + Up / New Folder text buttons, so the picker matches
+# the _MessageCard design.
+
+class _FlatIconProvider(QFileIconProvider):
+    """Minimal flat icons: grey folder, outline file, red-tinted mesh files."""
+
+    _MESH_EXT = {"stl", "obj"}
+
+    def __init__(self):
+        super().__init__()
+        self._cache = {}
+
+    def _flat(self, kind):
+        if kind in self._cache:
+            return self._cache[kind]
+        pm = QPixmap(24, 24)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        if kind == "folder":
+            p.setPen(QPen(QColor(BORDER_STRONG), 1.3))
+            p.setBrush(QColor(BG_SUBTLE))
+            p.drawRoundedRect(3, 6, 9, 5, 2, 2)      # tab
+            p.drawRoundedRect(3, 8, 18, 12, 2, 2)    # body
+        else:
+            accent = QColor(KS_RED) if kind == "mesh" else QColor(BORDER_STRONG)
+            p.setPen(QPen(accent, 1.3))
+            p.setBrush(QColor(BG_CARD))
+            p.drawRoundedRect(5, 3, 14, 18, 2, 2)
+            for y in (8, 12, 16):
+                p.drawLine(8, y, 16, y)
+        p.end()
+        icon = QIcon(pm)
+        self._cache[kind] = icon
+        return icon
+
+    def icon(self, arg):
+        if isinstance(arg, QFileInfo):
+            if arg.isDir():
+                return self._flat("folder")
+            if arg.suffix().lower() in self._MESH_EXT:
+                return self._flat("mesh")
+            return self._flat("file")
+        if arg in (QFileIconProvider.Folder, QFileIconProvider.Drive,
+                   QFileIconProvider.Computer, QFileIconProvider.Network):
+            return self._flat("folder")
+        return self._flat("file")
+
+
+# Object names of the stock QFileDialog chrome we hide (Qt5 internals — if a
+# name is missing on some Qt build, we simply skip it).
+_FILEDLG_HIDE = ("sidebar", "lookInLabel", "lookInCombo",
+                 "backButton", "forwardButton", "toParentButton",
+                 "newFolderButton", "listModeButton", "detailModeButton",
+                 "fileTypeLabel", "fileTypeCombo")
+
+
+class _FileCardFrame(QFrame):
+    """Card holding the embedded QFileDialog. Esc must cancel from ANY focus
+    position (path field, Up button, ...), not only when focus sits inside the
+    dialog itself — otherwise the popup can't be dismissed by keyboard."""
+
+    def __init__(self, parent, dlg):
+        super().__init__(parent)
+        self._dlg = dlg
+
+    def keyPressEvent(self, ev):
+        if ev.key() == Qt.Key_Escape:
+            self._dlg.reject()
+            return
+        super().keyPressEvent(ev)
+
+
+def _build_file_card(overlay, dlg, title, host):
+    """Wrap the embedded QFileDialog in a card with a modern header."""
+    dlg.setSidebarUrls([])
+    for name in _FILEDLG_HIDE:
+        child = dlg.findChild(QWidget, name)
+        if child is not None:
+            child.hide()
+
+    card = _FileCardFrame(overlay, dlg)
+    card.setObjectName("popupCard")
+    card.setStyleSheet(f"""
+        QFrame#popupCard {{
+            background: {BG_CARD};
+            border: 1px solid {BORDER_STRONG};
+            border-radius: 8px;
+        }}
+        QLabel#fileCardTitle {{
+            background: transparent; border: none;
+            color: {TEXT_PRIMARY}; font-size: 14px; font-weight: 700;
+        }}
+        QLineEdit#fileCardPath {{
+            background: {BG_SUBTLE}; color: {TEXT_PRIMARY};
+            border: 1px solid {BORDER_STRONG}; border-radius: 4px;
+            padding: 5px 8px; font-size: 12px;
+            selection-background-color: {KS_RED}; selection-color: {TEXT_WHITE};
+        }}
+        QPushButton#fileCardNav {{
+            background: {BG_CARD}; color: {TEXT_PRIMARY};
+            border: 1px solid {BORDER_STRONG}; border-radius: 4px;
+            padding: 5px 12px; font-size: 12px; font-weight: 600;
+        }}
+        QPushButton#fileCardNav:hover {{ background: {BG_SUBTLE}; }}
+    """ + STYLE_TOOLTIP)
+
+    lay = QVBoxLayout(card)
+    lay.setContentsMargins(16, 14, 16, 12)
+    lay.setSpacing(10)
+
+    title_lbl = QLabel(title)
+    title_lbl.setObjectName("fileCardTitle")
+    lay.addWidget(title_lbl)
+
+    nav = QHBoxLayout()
+    nav.setSpacing(8)
+    path_edit = QLineEdit(dlg.directory().absolutePath())
+    path_edit.setObjectName("fileCardPath")
+    path_edit.setToolTip("Current folder — type a path and press Enter to jump there.")
+
+    def _go_typed():
+        p = path_edit.text().strip()
+        if p and QDir(p).exists():
+            dlg.setDirectory(p)
+        else:
+            path_edit.setText(dlg.directory().absolutePath())
+    path_edit.returnPressed.connect(_go_typed)
+    dlg.directoryEntered.connect(path_edit.setText)
+    nav.addWidget(path_edit, 1)
+
+    up_btn = QPushButton("↑ Up")
+    up_btn.setObjectName("fileCardNav")
+    up_btn.setCursor(Qt.ArrowCursor)
+    up_btn.setToolTip("Go to the parent folder.")
+
+    def _go_up():
+        d = dlg.directory()
+        if d.cdUp():
+            dlg.setDirectory(d)
+            path_edit.setText(d.absolutePath())
+    up_btn.clicked.connect(_go_up)
+    nav.addWidget(up_btn)
+
+    newf = dlg.findChild(QWidget, "newFolderButton")
+    if newf is not None:
+        nf_btn = QPushButton("＋ New Folder")
+        nf_btn.setObjectName("fileCardNav")
+        nf_btn.setCursor(Qt.ArrowCursor)
+        nf_btn.setToolTip("Create a new folder here.")
+        nf_btn.clicked.connect(newf.click)      # reuse hidden stock action
+        nav.addWidget(nf_btn)
+    lay.addLayout(nav)
+
+    dlg.setParent(card)
+    dlg.setWindowFlags(Qt.Widget)                 # embed: not a real window
+    lay.addWidget(dlg, 1)
+
+    w = min(760, max(560, host.width() - 160))
+    h = min(540, max(420, host.height() - 180))
+    card.setFixedSize(w, h)
+    card.setFocusProxy(dlg)                       # Esc / typing reach the dialog
+    return card
+
+
+def _run_file_dialog(parent, title, directory, name_filter, mode):
+    host = _host_window(parent)
+    dlg = QFileDialog(None, title, directory, name_filter)
+    dlg.setFileMode(mode)
+    dlg.setOption(QFileDialog.DontUseNativeDialog, True)
+    if mode == QFileDialog.Directory:
+        dlg.setOption(QFileDialog.ShowDirsOnly, True)
+    dlg._icon_provider = _FlatIconProvider()      # keep a live reference
+    dlg.setIconProvider(dlg._icon_provider)
+    if host is None or not host.isVisible():
+        return dlg.selectedFiles() if dlg.exec_() else []
+    overlay = _PopupOverlay(host)
+    dlg.setObjectName("popupFileDlg")
+    # Style EVERY inner widget explicitly — the embedded dialog otherwise
+    # inherits the system (dark) palette and its views render black-on-black.
+    dlg.setStyleSheet(f"""
+        QFileDialog#popupFileDlg {{
+            background: {BG_CARD};
+            border: none;
+        }}
+        QFileDialog#popupFileDlg QWidget {{
+            background: {BG_CARD};
+            color: {TEXT_PRIMARY};
+            font-size: 12px;
+        }}
+        QFileDialog#popupFileDlg QLabel {{
+            background: transparent;
+            color: {TEXT_MUTED};
+        }}
+        QFileDialog#popupFileDlg QLineEdit {{
+            background: {BG_CARD};
+            color: {TEXT_PRIMARY};
+            border: 1px solid {BORDER_STRONG};
+            border-radius: 4px;
+            padding: 4px 8px;
+            selection-background-color: {KS_RED};
+            selection-color: {TEXT_WHITE};
+        }}
+        QFileDialog#popupFileDlg QComboBox {{
+            background: {BG_CARD};
+            color: {TEXT_PRIMARY};
+            border: 1px solid {BORDER_STRONG};
+            border-radius: 4px;
+            padding: 4px 8px;
+        }}
+        QFileDialog#popupFileDlg QComboBox QAbstractItemView {{
+            background: {BG_CARD};
+            color: {TEXT_PRIMARY};
+            border: 1px solid {BORDER_STRONG};
+            selection-background-color: {KS_RED_LT};
+            selection-color: {TEXT_PRIMARY};
+        }}
+        QFileDialog#popupFileDlg QTreeView,
+        QFileDialog#popupFileDlg QListView {{
+            background: {BG_CARD};
+            color: {TEXT_PRIMARY};
+            border: 1px solid {BORDER};
+            border-radius: 4px;
+            alternate-background-color: {BG_SUBTLE};
+        }}
+        QFileDialog#popupFileDlg QTreeView::item,
+        QFileDialog#popupFileDlg QListView::item {{
+            padding: 3px 2px;
+        }}
+        QFileDialog#popupFileDlg QTreeView::item:selected,
+        QFileDialog#popupFileDlg QListView::item:selected {{
+            background: {KS_RED_LT};
+            color: {TEXT_PRIMARY};
+        }}
+        QFileDialog#popupFileDlg QHeaderView::section {{
+            background: {BG_SUBTLE};
+            color: {TEXT_MUTED};
+            border: none;
+            border-bottom: 1px solid {BORDER};
+            border-right: 1px solid {BORDER};
+            padding: 4px 8px;
+        }}
+        QFileDialog#popupFileDlg QToolButton {{
+            background: {BG_CARD};
+            border: 1px solid {BORDER};
+            border-radius: 4px;
+            padding: 3px;
+        }}
+        QFileDialog#popupFileDlg QToolButton:hover {{
+            background: {BG_SUBTLE};
+            border-color: {BORDER_STRONG};
+        }}
+        QFileDialog#popupFileDlg QToolButton:disabled {{
+            background: {BG_SUBTLE};
+            border-color: {BORDER_SOFT};
+        }}
+        QFileDialog#popupFileDlg QPushButton {{
+            background: {BG_CARD};
+            color: {TEXT_PRIMARY};
+            border: 1px solid {BORDER_STRONG};
+            border-radius: 4px;
+            padding: 6px 18px;
+            font-weight: 600;
+        }}
+        QFileDialog#popupFileDlg QPushButton:hover {{
+            background: {BG_SUBTLE};
+        }}
+        QFileDialog#popupFileDlg QPushButton:default {{
+            background: {KS_RED};
+            color: {TEXT_WHITE};
+            border: none;
+        }}
+        QFileDialog#popupFileDlg QPushButton:default:hover {{
+            background: {KS_RED_DARK};
+        }}
+        QFileDialog#popupFileDlg QScrollBar:vertical {{
+            background: {BG_SUBTLE}; width: 10px; border: none;
+        }}
+        QFileDialog#popupFileDlg QScrollBar:horizontal {{
+            background: {BG_SUBTLE}; height: 10px; border: none;
+        }}
+        QFileDialog#popupFileDlg QScrollBar::handle {{
+            background: {BORDER_STRONG}; border-radius: 4px; min-height: 24px;
+        }}
+        QFileDialog#popupFileDlg QScrollBar::add-line,
+        QFileDialog#popupFileDlg QScrollBar::sub-line {{
+            width: 0px; height: 0px;
+        }}
+    """ + STYLE_TOOLTIP)
+    card = _build_file_card(overlay, dlg, title, host)
+    dlg.accepted.connect(lambda: overlay.finish(list(dlg.selectedFiles())))
+    dlg.rejected.connect(lambda: overlay.finish([]))
+    result = overlay.run(card)
+    return result if result else []
+
+
+def pick_open_file(parent, title, directory="", name_filter=""):
+    """Centred in-window single-file picker; returns path or ''."""
+    files = _run_file_dialog(parent, title, directory, name_filter,
+                             QFileDialog.ExistingFile)
+    return files[0] if files else ""
+
+
+def pick_open_files(parent, title, directory="", name_filter=""):
+    """Centred in-window multi-file picker; returns list of paths."""
+    return _run_file_dialog(parent, title, directory, name_filter,
+                            QFileDialog.ExistingFiles)
+
+
+def pick_existing_dir(parent, title, directory=""):
+    """Centred in-window directory picker; returns path or ''."""
+    files = _run_file_dialog(parent, title, directory, "",
+                             QFileDialog.Directory)
+    return files[0] if files else ""
 
 
 # ── 4. CFD helpers ────────────────────────────────────────────────────────────
@@ -785,6 +1311,52 @@ def find_paraview_exe() -> Optional[str]:
         _pv_exe_cache = matches[-1] if matches else None
         _pv_exe_searched = True
     return _pv_exe_cache
+
+
+def detect_openfoam_version() -> Optional[str]:
+    """Version of the OpenFOAM install actually in use, e.g. '2506'.
+
+    $WM_PROJECT_VERSION is set because the launcher sources the OpenFOAM
+    bashrc before starting the GUI; if the GUI was started without it,
+    fall back to the newest /usr/lib/openfoam/openfoam* directory."""
+    env = os.environ.get("WM_PROJECT_VERSION", "").strip()
+    if env:
+        return env.lstrip("v")
+    matches = sorted(glob.glob("/usr/lib/openfoam/openfoam[0-9]*"))
+    if matches:
+        return os.path.basename(matches[-1]).replace("openfoam", "")
+    return None
+
+
+def detect_ubuntu_version() -> Optional[str]:
+    """Ubuntu release the GUI is running on, e.g. '24.04' (from os-release)."""
+    try:
+        with open("/etc/os-release") as f:
+            info = dict(
+                ln.strip().split("=", 1) for ln in f if "=" in ln)
+    except OSError:
+        return None
+    ver = info.get("VERSION_ID", "").strip('"')
+    return ver or None
+
+
+def detect_python_version() -> str:
+    """Running interpreter version, e.g. '3.12'."""
+    import sys
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
+
+
+def detect_paraview_version() -> Optional[str]:
+    """Version parsed from the detected ParaView install path, e.g. '5.13.1'.
+
+    Returns None when no ParaView install is found; '?' when an install
+    exists but the directory name carries no version number."""
+    import re
+    pv = find_paraview_exe()
+    if not pv:
+        return None
+    m = re.search(r"ParaView-?(\d+\.\d+(?:\.\d+)?)", pv)
+    return m.group(1) if m else "?"
 
 
 def run_of_command(cmd: str, cwd: str, log_callback: Callable) -> int:

@@ -342,7 +342,13 @@ class MainWindow(QMainWindow):
         swapped per tab by _switch_tab."""
         hero = QWidget()
         hero.setFixedHeight(80)
-        hero.setStyleSheet(f"background: {BG_APP}; border-bottom: 1px solid {BORDER};")
+        # Scoped selector: a bare "border-bottom" declaration cascades to every
+        # child label and draws a stray line through the eyebrow/title text.
+        hero.setObjectName("heroStrip")
+        hero.setAttribute(Qt.WA_StyledBackground, True)
+        hero.setStyleSheet(
+            f"QWidget#heroStrip {{ background: {BG_APP};"
+            f" border-bottom: 1px solid {BORDER}; }}")
         row = QHBoxLayout(hero)
         row.setContentsMargins(24, 0, 24, 0)
         row.setSpacing(0)

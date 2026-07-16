@@ -4,6 +4,34 @@ All notable changes to the OpenFOAM UI project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026-07-16] — Self-Healing Launcher v1.0.6 + Live Environment Detection
+
+### Added
+- Launcher self-healing installs: missing WSL → one-click elevated
+  `wsl --install` with optional one-time **Restart Now**; missing distro →
+  Ubuntu download + guided first-run terminal (account-creation polling);
+  WSL1 distro → one-click convert to WSL2; missing WSLg display →
+  **Update WSL** button.
+- Pre-setup probes: Windows-build gate (≥ 21362 for WSLg), network
+  reachability of download servers (bash `/dev/tcp`, no curl dependency),
+  and disk-space checks on both the Windows and WSL sides.
+- **Copy Details** on every launcher error dialog — clipboard diagnostics
+  report (versions + log tail) for IT tickets.
+- Manual-install guide when admin permission is declined or blocked:
+  numbered steps + **Copy Command** button; launcher resumes automatically
+  on the next run.
+- Landing page environment card and utility checklist now show *detected*
+  software versions (OpenFOAM, ParaView, Ubuntu, Python) instead of
+  hardcoded labels — green dot when found, grey "not found" otherwise.
+
+### Fixed
+- GUI backend no longer hardcodes the OpenFOAM 2506 bashrc: `ui_shared` and
+  `snappy_generator` now source the install the GUI was launched under
+  (`$WM_PROJECT_DIR`), falling back to the newest `/usr/lib/openfoam/`
+  install — 2312-only machines now run meshes instead of failing.
+- Checkbox tick icons (`icons/check_16.png`, `check_32.png`) added to the
+  repository — fresh clones previously showed empty checked boxes.
+
 ## [2026-07-08] — Repository Restructuring
 
 ### Changed

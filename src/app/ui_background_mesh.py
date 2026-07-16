@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QLineEdit, QScrollArea, QFrame,
-                              QFileDialog, QSizePolicy)
+                              QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 from ui_shared import (
@@ -31,6 +31,7 @@ from ui_shared import (
     STYLE_ENTRY, STYLE_SCROLL,
     build_card, positive_float, run_of_command, to_wsl_path,
     MessageBanner, scan_log_for_fix, load_prefs, save_prefs, msg_question,
+    pick_open_file,
 )
 
 try:
@@ -380,7 +381,7 @@ class BackgroundMeshWidget(QWidget):
         constant_dir = os.path.join(start_dir, "constant")
         if os.path.isdir(constant_dir):
             start_dir = constant_dir
-        p, _ = QFileDialog.getOpenFileName(
+        p = pick_open_file(
             self, "Select STL file", start_dir,
             "STL files (*.stl);;All files (*.*)")
         if not p:

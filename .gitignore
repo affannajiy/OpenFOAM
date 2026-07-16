@@ -31,6 +31,8 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# our launcher spec is hand-maintained, not generated — keep it tracked
+!src/deploy/openfoam_ui_launcher.spec
 
 # Installer logs
 pip-log.txt

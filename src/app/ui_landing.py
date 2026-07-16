@@ -16,7 +16,7 @@ from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QScrollArea, QSizePolicy,
-    QFileDialog, QStackedWidget,
+    QStackedWidget,
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -28,7 +28,10 @@ from ui_shared import (
     STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_BTN_SMALL_RED, STYLE_BTN_GHOST,
     STYLE_BTN_PRIMARY,
     find_paraview_exe, build_card, ChevronComboBox, to_wsl_path,
+    detect_openfoam_version, detect_ubuntu_version,
+    detect_python_version, detect_paraview_version,
     msg_warning, msg_critical, msg_question,
+    pick_open_files, pick_existing_dir,
 )
 
 
@@ -268,15 +271,16 @@ class LandingWidget(QWidget):
         meta_v.setContentsMargins(12, 12, 12, 12)
         meta_v.setSpacing(8)
 
-        pv = find_paraview_exe()
-        pv_text = "not found"
-        if pv:
-            m = re.search(r"ParaView-?(\d+\.\d+(?:\.\d+)?)", pv)
-            pv_text = f"{m.group(1)} detected" if m else "detected"
+        pv_ver = detect_paraview_version()
+        pv_text = ("not found" if not pv_ver
+                   else "detected" if pv_ver == "?"
+                   else f"{pv_ver} detected")
+        of_ver = detect_openfoam_version()
+        of_text = f"openfoam{of_ver}" if of_ver else "not found"
 
         for key, val in [
             ("Working dir", os.path.expanduser("~/OpenFOAM")),
-            ("OF binary",   "openfoam2506"),
+            ("OF binary",   of_text),
             ("ParaView",    pv_text),
         ]:
             r = QHBoxLayout()
@@ -453,11 +457,11 @@ class LandingWidget(QWidget):
             }}
         """)
         pf_v = QVBoxLayout(preview_frame)
-        pf_v.setContentsMargins(10, 10, 10, 10)
+        pf_v.setContentsMargins(14, 12, 14, 12)
         self._preview_lbl = QLabel()
         self._preview_lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 10px;"
-            " background: transparent;")
+            "color: #4B5563; font-family: Consolas; font-size: 11px;"
+            " line-height: 150%; background: transparent;")
         self._preview_lbl.setTextFormat(Qt.PlainText)
         pf_v.addWidget(self._preview_lbl)
         vbox.addWidget(preview_frame)
@@ -682,9 +686,20 @@ class LandingWidget(QWidget):
             " font-weight: bold; background: transparent;")
         body.addWidget(env_lbl)
 
-        pv_ok = bool(find_paraview_exe())
-        left_col  = [("OpenFOAM 2506", True), ("ParaView 5.13", pv_ok)]
-        right_col = [("WSL Ubuntu",    True), ("Python 3.10",   True)]
+        def _entry(name, ver):
+            """(label, ok) — green dot + version when detected, grey dot +
+            'not found' otherwise."""
+            if ver:
+                suffix = "" if ver == "?" else f" {ver}"
+                return f"{name}{suffix}", True
+            return f"{name} — not found", False
+
+        of_ver = detect_openfoam_version()
+        ub_ver = detect_ubuntu_version()
+        left_col = [_entry("OpenFOAM", of_ver),
+                    _entry("ParaView", detect_paraview_version())]
+        right_col = [_entry("WSL Ubuntu", ub_ver),
+                     _entry("Python", detect_python_version())]
 
         env_row = QHBoxLayout()
         env_row.setSpacing(16)
@@ -884,7 +899,7 @@ class LandingWidget(QWidget):
 
     def _browse_location(self):
         """Folder picker for where the new case will be created."""
-        d = QFileDialog.getExistingDirectory(
+        d = pick_existing_dir(
             self, "Select project location",
             os.path.expanduser(self._loc_edit.text()))
         if d:
@@ -893,7 +908,7 @@ class LandingWidget(QWidget):
     def _browse_open_case(self):
         """Folder picker for an existing case — rejected unless it contains
         system/controlDict (the minimum sign of a real OpenFOAM case)."""
-        d = QFileDialog.getExistingDirectory(
+        d = pick_existing_dir(
             self, "Select OpenFOAM case folder", os.path.expanduser("~"))
         if not d:
             return
@@ -944,7 +959,7 @@ class LandingWidget(QWidget):
 
     def _browse_stls(self):
         """Pick one or more STL/OBJ files to seed constant/triSurface/."""
-        paths, _ = QFileDialog.getOpenFileNames(
+        paths = pick_open_files(
             self, "Select STL/OBJ files", os.path.expanduser("~"),
             "Geometry files (*.stl *.obj);;All files (*.*)")
         if not paths:

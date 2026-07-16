@@ -89,18 +89,24 @@ Add to `~/.bashrc` to run automatically, or use the `of2506` alias.
 | OpenFOAM v2506 inside WSL | See installation steps above |
 | Python 3 + PyQt5, numpy, jinja2 inside WSL | Launcher installs via apt automatically on first run |
 
-## What the Launcher Checks
+## What the Launcher Checks (and Fixes Itself)
 
-Six pre-flight steps, stops at first failure with a fix message:
+Pre-flight steps run in order; most failures are **self-healing** — the launcher offers a one-click fix instead of just an error:
 
-| # | Step | If missing |
+| # | Step | If missing — what the launcher does |
 |---|------|------------|
-| 1 | WSL2 + distro detect | `wsl --install`, restart. Auto-detects and targets your Ubuntu distro |
-| 2 | Patient WSL boot (90s) | Click **Try Again** — VM still booting. Never need to restart Windows |
-| 3 | WSLg display + compositor | `wsl --update` then `wsl --shutdown` |
-| 4 | OpenFOAM bashrc (2506, or 2312) | Install OpenFOAM 2506 in WSL |
-| 5 | Python packages + setup gate | Single consent dialog; apt-only install of Qt libs + PyQt5/numpy/jinja2 |
-| 6 | `openfoam_ui.py` present | Keep all files together in `src\app\` |
+| 0 | Windows build ≥ 21362 (WSLg) | Clear "Windows too old" message up front |
+| 1 | WSL installed | **[Install WSL]** button — UAC prompt, then optional one-time **Restart Now** |
+| 2 | Ubuntu distro exists | **[Install Ubuntu]** button — downloads it, then opens a guided terminal to create your username/password |
+| 3 | Patient WSL boot (90s) | Click **Try Again** — VM still booting |
+| 4 | Distro is WSL2 (not WSL1) | **[Convert to WSL2]** button |
+| 5 | WSLg display + compositor | **[Update WSL]** button (`wsl --update` + restart WSL) |
+| 6 | OpenFOAM bashrc (2506, or 2312) | Included in the setup consent below |
+| 7 | Network + disk-space probes | Warns before setup if download servers are unreachable (corporate proxy) or disk is low |
+| 8 | Python packages + setup gate | Single consent dialog; apt-only install of Qt libs + PyQt5/numpy/jinja2 (+ OpenFOAM if missing) |
+| 9 | `openfoam_ui.py` present | Keep all files together in `src\app\` |
+
+If an automatic install can't run (admin permission declined / blocked by policy), the launcher shows numbered manual steps with a **Copy Command** button, and continues automatically on the next run once the install is done. Every error dialog has **Copy Details** — a full diagnostics report for IT tickets.
 
 ---
 
@@ -113,6 +119,7 @@ Needs a display — automatic via WSLg on Windows 11; start an X server (VcXsrv/
 - **New project** — enter name/location; creates `constant/triSurface/`, `system/`, `0/` and stub dicts. Name is auto-cleaned as you type (spaces/punctuation → `_`); `C:\…` locations are auto-converted to WSL `/mnt/…`.
 - **Template** — *Empty case*, or *From STL* (pick one or more `.stl`/`.obj` files, copied into `constant/triSurface/`).
 - **Open existing** — browse or pick from recents (max 10). Validates `system/controlDict` exists. Removing a recent entry (×) asks for confirmation first — the project folder itself is never deleted.
+- **Environment card** — shows the *detected* versions of OpenFOAM, ParaView, Ubuntu, and Python on this machine (green dot = found, grey = not found). Nothing is hardcoded — a different install (e.g. OpenFOAM 2312) shows its real version and is used automatically.
 
 Pick a utility, then click the footer **Open →** (enabled once a project and utility are both chosen; double-click a utility card also opens). **← Home** returns anytime.
 
@@ -202,7 +209,12 @@ Requires `system/controlDict` and `constant/` in the case root.
 
 | Launcher error | Fix |
 |---|---|
-| WSL Not Found | `wsl --install` (admin PowerShell), restart |
+| WSL Not Installed | Click **Install WSL** (needs admin approval); or `wsl --install` in admin PowerShell, restart |
+| No Linux Distribution Found | Click **Install Ubuntu** and follow the terminal; or `wsl --install -d Ubuntu` |
+| Distro is WSL1 | Click **Convert to WSL2**; or `wsl --set-version <distro> 2` |
+| Administrator Permission Needed | Follow the numbered steps in the dialog (**Copy Command** copies the exact command); ask IT if you lack admin rights |
+| Download Servers Unreachable | Corporate proxy/firewall — connect to an open network or ask IT to allow archive.ubuntu.com and dl.openfoam.com |
+| Low Disk Space | Free space on C: and inside WSL, then retry |
 | WSL Timed Out | Click **Try Again** — VM still booting |
 | WSL Unreachable | `wsl --status`, `wsl --shutdown`, retry; else `wsl --update` |
 | No Display Available | `wsl --update`, `wsl --shutdown`; needs Win10 21362+/Win11 |
@@ -301,7 +313,7 @@ Prompts for a version number, patches `version_info.txt` + the splash label, run
 ## Platform Notes
 
 - `C:\OpenFOAM` ↔ WSL `/mnt/c/OpenFOAM`
-- Target OpenFOAM: **2506** (also 2312)
+- Target OpenFOAM: **2506** (also 2312). The GUI sources whichever install it was launched under (`$WM_PROJECT_DIR`), else the newest under `/usr/lib/openfoam/` — no hardcoded version
 - ParaView auto-detected at `/mnt/c/Program Files/ParaView*/bin/paraview.exe` (newest wins), path converted via `wslpath -w`
 - GUI window 1100×760, centered; needs WSLg or X server
 - `qInstallMessageHandler` in `openfoam_ui.py` silences harmless Qt5 stylesheet warnings
