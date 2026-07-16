@@ -29,8 +29,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                               QHBoxLayout, QLabel, QPushButton, QFrame,
                               QStackedWidget)
+from PyQt5.QtWidgets import QShortcut
 from PyQt5.QtCore import Qt, QTimer, qInstallMessageHandler
-from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtGui import QIcon, QPixmap, QKeySequence
 
 
 # Qt5 on Linux/WSL emits "Could not parse stylesheet of object QFrame(...)" to
@@ -49,7 +50,7 @@ qInstallMessageHandler(_qt_msg_handler)
 from ui_shared import (
     KS_RED, KS_BLACK, BG_APP, TEXT_PRIMARY, TEXT_MUTED, TEXT_WHITE,
     LOG_CMD, BORDER, STYLE_TOOLTIP,
-    find_paraview_exe,
+    find_paraview_exe, msg_info,
 )
 from ui_log_drawer import LogDrawer
 from ui_background_mesh import BackgroundMeshWidget
@@ -155,6 +156,45 @@ class MainWindow(QMainWindow):
 
         self._set_window_icon()
         self._center()
+        self._install_shortcuts()
+
+    # ── Keyboard shortcuts + Help ──────────────────────────────────────────────
+
+    def _install_shortcuts(self):
+        """App-wide keyboard accelerators: F1 = help, Ctrl+L = toggle log
+        drawer, Esc = stop the active tab's running job (no-op when idle)."""
+        QShortcut(QKeySequence("F1"),     self, activated=self._show_help)
+        QShortcut(QKeySequence("Ctrl+L"), self, activated=self._log._toggle)
+        QShortcut(QKeySequence("Esc"),    self, activated=self._cancel_active_run)
+
+    def _cancel_active_run(self):
+        """Esc: cancel whichever tab has a job running; does nothing when idle."""
+        if self._root_stack.currentIndex() != 1:
+            return
+        if self._tab_idx == 0:
+            self._bg_widget.cancel_run()
+        else:
+            self._snappy_widget.cancel_run()
+
+    def _show_help(self):
+        """Quick-start help dialog (? header button / F1)."""
+        msg_info(
+            self, "Quick start",
+            "<b>1 — Background Mesh (Step 1 of 2)</b><br>"
+            "• Pick your STL file, set the cell sizes DX/DY/DZ (mm).<br>"
+            "• Click <i>Generate Background Mesh</i> — this builds the box "
+            "your part will be meshed inside.<br><br>"
+            "<b>2 — Snappy Hex Mesh (Step 2 of 2)</b><br>"
+            "• In the file table: the outer shell = <i>Boundary</i>; every solid "
+            "inside it = <i>FaceZone</i> + Cell Zone, Vol Dir = Inside.<br>"
+            "• Set <i>Location In Mesh</i> to a point inside the box but outside "
+            "the solids (use <i>Suggest point</i>).<br>"
+            "• Check the PRE-FLIGHT list shows all ✓, then click Generate.<br><br>"
+            "<b>Shortcuts</b><br>"
+            "• F1 — this help &nbsp;• Ctrl+L — show/hide log &nbsp;"
+            "• Esc — stop a running job<br><br>"
+            "Hover over any field for a hint. When a run fails, the red banner "
+            "above the log tells you the fix in plain words.")
 
     # ── Header bar ─────────────────────────────────────────────────────────────
 
@@ -271,6 +311,26 @@ class MainWindow(QMainWindow):
         self._paraview_btn.setEnabled(False)
         self._paraview_btn.clicked.connect(self._open_paraview)
         row.addWidget(self._paraview_btn)
+
+        # Help button — always visible, opens the quick-start dialog (also F1).
+        help_btn = QPushButton("?")
+        help_btn.setFixedSize(26, 26)
+        help_btn.setCursor(Qt.PointingHandCursor)
+        help_btn.setStyleSheet(f"""
+            QPushButton {{
+                color: #9CA3AF;
+                background: transparent;
+                border: 1px solid #374151;
+                border-radius: 13px;
+                font-family: 'Segoe UI';
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{ color: {TEXT_WHITE}; border-color: {LOG_CMD}; }}
+        """ + STYLE_TOOLTIP)
+        help_btn.setToolTip("Quick-start help (F1).")
+        help_btn.clicked.connect(self._show_help)
+        row.addWidget(help_btn)
 
         root.addWidget(hdr)
 

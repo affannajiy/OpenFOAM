@@ -16,7 +16,7 @@ from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QScrollArea, QSizePolicy,
-    QFileDialog, QStackedWidget, QMessageBox,
+    QFileDialog, QStackedWidget,
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
@@ -28,6 +28,7 @@ from ui_shared import (
     STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_BTN_SMALL_RED, STYLE_BTN_GHOST,
     STYLE_BTN_PRIMARY,
     find_paraview_exe, build_card, ChevronComboBox, to_wsl_path,
+    msg_warning, msg_critical, msg_question,
 )
 
 
@@ -638,12 +639,10 @@ class LandingWidget(QWidget):
     def _on_recent_delete(self, path: str):
         """× button on a recents row: confirm, then remove the entry from the
         list (the folder on disk is never touched)."""
-        reply = QMessageBox.question(
-            self, "Remove recent project?",
-            f"Remove this from your recents list?\n\n{path}\n\n"
-            "This does not delete the folder itself.",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply != QMessageBox.Yes:
+        if not msg_question(
+                self, "Remove recent project?",
+                f"Remove this from your recents list?\n\n{path}\n\n"
+                "This does not delete the folder itself.", default_no=True):
             return
         self._recents = [e for e in self._recents if e.get("path") != path]
         _save_recents(self._recents)
@@ -899,7 +898,7 @@ class LandingWidget(QWidget):
         if not d:
             return
         if not os.path.isfile(os.path.join(d, "system", "controlDict")):
-            QMessageBox.warning(
+            msg_warning(
                 self, "Not a valid case",
                 f"The selected folder does not contain system/controlDict:\n{d}")
             return
@@ -982,7 +981,7 @@ class LandingWidget(QWidget):
         folder. Either way, record it in recents and emit continue_clicked so
         MainWindow enters the utility."""
         if self._util_id is None:
-            QMessageBox.warning(
+            msg_warning(
                 self, "No utility selected",
                 "Please select a utility (Background Mesh or Snappy Hex Mesh).")
             return
@@ -992,10 +991,10 @@ class LandingWidget(QWidget):
             # case is reachable from the OpenFOAM tools that run inside WSL.
             location = to_wsl_path(os.path.expanduser(self._loc_edit.text().strip()))
             if not name:
-                QMessageBox.warning(self, "Missing name", "Please enter a project name.")
+                msg_warning(self, "Missing name", "Please enter a project name.")
                 return
             if not location.startswith("/"):
-                QMessageBox.warning(
+                msg_warning(
                     self, "Location not reachable from WSL",
                     "The location must be a WSL path (starts with /) or a Windows\n"
                     "drive path like C:\\OpenFOAM (auto-converted to /mnt/c/OpenFOAM).\n"
@@ -1019,22 +1018,22 @@ class LandingWidget(QWidget):
                             shutil.copy2(src, os.path.join(tri_dir, os.path.basename(src)))
                             copied += 1
                     if copied == 0:
-                        QMessageBox.warning(
+                        msg_warning(
                             self, "No files copied",
                             "None of the chosen STL/OBJ files could be found on disk.\n"
                             "The case was still created — add geometry manually if needed.")
             except Exception as exc:
-                QMessageBox.critical(self, "Error creating case", str(exc))
+                msg_critical(self, "Error creating case", str(exc))
                 return
         else:
             case_dir = self._open_path
             if not case_dir:
-                QMessageBox.warning(
+                msg_warning(
                     self, "No project selected",
                     "Please browse to or select an OpenFOAM case folder first.")
                 return
             if not os.path.isfile(os.path.join(case_dir, "system", "controlDict")):
-                QMessageBox.warning(
+                msg_warning(
                     self, "Invalid case",
                     "system/controlDict not found in the selected folder.")
                 return

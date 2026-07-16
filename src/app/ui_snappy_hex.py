@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
-    QScrollArea, QFrame, QFileDialog, QMessageBox,
+    QScrollArea, QFrame, QFileDialog,
     QCheckBox, QSizePolicy,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
@@ -44,6 +44,7 @@ from ui_shared import (
     STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_CHECKBOX, STYLE_TOOLTIP,
     build_card, to_wsl_path, PlusMinusSpinBox, ChevronComboBox, get_stl_zone_names,
     find_paraview_exe, make_info_icon, MessageBanner, scan_log_for_fix,
+    load_prefs, save_prefs, msg_warning, msg_critical,
 )
 
 try:
@@ -128,6 +129,7 @@ class SnappyHexWidget(QWidget):
         self._num_shapes_sp         = None
         self._shapes_container_layout = None
         self._geom_unit_combo       = None
+        self._cancel_btn            = None
         self._ncbl_sp               = None
         self._loc_x_sp              = None
         self._loc_y_sp              = None
@@ -197,6 +199,19 @@ class SnappyHexWidget(QWidget):
         self._build_sec4()
         self._build_sec5()
         self._content_layout.addStretch()
+
+        # Restore last-used non-case-specific settings from the per-user prefs
+        # file (unit, nCellsBetweenLevels, layers toggle).  Case-specific values
+        # (locationInMesh, file table) are deliberately not persisted.
+        prefs = load_prefs()
+        unit = prefs.get("snappy_unit")
+        if unit in _GEOM_UNITS and self._geom_unit_combo:
+            self._geom_unit_combo.setCurrentText(unit)
+        ncbl = prefs.get("snappy_ncbl")
+        if isinstance(ncbl, int) and self._ncbl_sp:
+            self._ncbl_sp.setValue(ncbl)
+        if isinstance(prefs.get("snappy_add_layers"), bool) and self._add_layers_cb:
+            self._add_layers_cb.setChecked(prefs["snappy_add_layers"])
 
     # ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -1225,6 +1240,14 @@ class SnappyHexWidget(QWidget):
         body.addWidget(self._open_paraview_cb)
 
         btn_row = QHBoxLayout()
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setStyleSheet(STYLE_BTN_SMALL_GHOST)
+        self._cancel_btn.setEnabled(False)   # only meaningful while a run is active
+        self._cancel_btn.setToolTip(
+            "Stop the running mesher (Esc).\n"
+            "A cancelled mesh is incomplete — run again before using it.")
+        self._cancel_btn.clicked.connect(self.cancel_run)
+        btn_row.addWidget(self._cancel_btn)
         self._run_btn = QPushButton("Generate Snappy Hex Mesh")
         self._run_btn.setStyleSheet(STYLE_BTN_PRIMARY)
         self._run_btn.setEnabled(_BACKEND_OK)
@@ -1347,7 +1370,7 @@ class SnappyHexWidget(QWidget):
         self._stl_vol_cache.clear()
         self._cwd_lbl.setText(d)
         if not os.path.isdir(os.path.join(d, "constant")) or not os.path.isdir(os.path.join(d, "system")):
-            QMessageBox.warning(
+            msg_warning(
                 self, "Possible invalid case root",
                 "The selected directory does not contain both constant/ and system/.\n"
                 "It may not be a valid OpenFOAM case root.")
@@ -1552,17 +1575,26 @@ class SnappyHexWidget(QWidget):
         so the mesher runs without freezing the window."""
         self._refresh_preflight()
         if not _BACKEND_OK:
-            QMessageBox.critical(self, "Backend unavailable", _BACKEND_ERR)
+            msg_critical(self, "Backend unavailable", _BACKEND_ERR)
             return
 
         try:
             config = self._collect_data()
         except ValueError as exc:
-            QMessageBox.critical(self, "Invalid input", str(exc))
+            msg_critical(self, "Invalid input", str(exc))
             return
+
+        # Remember non-case-specific settings for the next app launch.
+        save_prefs({
+            "snappy_unit":       self._geom_unit_combo.currentText() if self._geom_unit_combo else "mm",
+            "snappy_ncbl":       self._ncbl_sp.value() if self._ncbl_sp else 2,
+            "snappy_add_layers": self._add_layers_cb.isChecked() if self._add_layers_cb else False,
+        })
 
         self._run_btn.setEnabled(False)
         self._run_btn.setText("Running...")
+        if self._cancel_btn:
+            self._cancel_btn.setEnabled(True)
         self._log.set_running(True)
         self._log.write("\n[snappyHexMesh] Starting...\n", "info")
 
@@ -1578,6 +1610,28 @@ class SnappyHexWidget(QWidget):
         worker.finished_signal.connect(self._on_run_done)
         worker.start()
         self._run_worker = worker
+
+    def cancel_run(self):
+        """Stop a running snappyHexMesh worker (Cancel button / Esc shortcut).
+
+        The mesher is killed mid-write, so any polyMesh it produced is
+        incomplete — we warn instead of deleting (nothing destructive)."""
+        worker = getattr(self, "_run_worker", None)
+        if not (worker and worker.isRunning()):
+            return
+        worker.terminate()
+        self._log.write("[snappyHexMesh] Cancelled by user.\n", "warn")
+        self._log.set_running(False)
+        self._log.set_step("")
+        self._run_btn.setEnabled(True)
+        self._run_btn.setText("Generate Dict && Run snappyHexMesh")
+        if self._cancel_btn:
+            self._cancel_btn.setEnabled(False)
+        if self._msg_banner:
+            self._msg_banner.show_error(
+                "Run cancelled. The mesh is incomplete — run "
+                "Generate again before using it.")
+        self._log.status_changed.emit("Cancelled", "#F59E0B")
 
     def _collect_log(self, message: str, _tag: str = "info"):
         """Accumulate worker output so a failed run can be scanned for a plain fix,
@@ -1598,6 +1652,8 @@ class SnappyHexWidget(QWidget):
         self._log.set_step("")
         self._run_btn.setEnabled(True)
         self._run_btn.setText("Generate Dict && Run snappyHexMesh")
+        if self._cancel_btn:
+            self._cancel_btn.setEnabled(False)
         self._update_time_dirs()
         self._update_dict_banner()
         tag   = "info" if success else "error"

@@ -28,7 +28,6 @@ Diagnostics are appended to %TEMP%/openfoam_ui_launcher.log; every error
 dialog references that path.
 """
 import tkinter as tk
-from tkinter import messagebox
 import subprocess
 import sys
 import os
@@ -284,15 +283,21 @@ class _Splash:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _show_error(splash, title, msg):
-    """Modal error dialog; the diagnostic log path is always appended."""
+    """Modal error dialog; the diagnostic log path is always appended.
+
+    Built on _choice_dialog rather than tkinter's native messagebox because
+    the native one places itself wherever Windows decides (often the top-left
+    of the screen); _choice_dialog centers over the splash."""
     _log(f'ERROR DIALOG: {title}')
-    messagebox.showerror(title, msg + f'\n\nLog: {_LOG_PATH}',
-                         parent=splash.root)
+    _choice_dialog(splash, title, msg + f'\n\nLog: {_LOG_PATH}',
+                   [('ok', 'OK')])
 
 
 def _ask_yes_no(splash, title, msg, icon='info'):
-    """Modal Yes/No question; returns True for Yes."""
-    return messagebox.askyesno(title, msg, icon=icon, parent=splash.root)
+    """Modal Yes/No question; returns True for Yes. Centered like _show_error
+    (the `icon` argument is kept for call-site compatibility but unused)."""
+    return _choice_dialog(splash, title, msg,
+                          [('yes', 'Yes'), ('no', 'No')]) == 'yes'
 
 
 def _choice_dialog(splash, title, msg, buttons):
@@ -330,10 +335,19 @@ def _choice_dialog(splash, title, msg, buttons):
 
     top.protocol('WM_DELETE_WINDOW', lambda: _pick(buttons[-1][0]))
 
-    # Center over the splash window.
+    # Center over the splash window; fall back to the screen center if the
+    # splash is not visible (e.g. already destroyed).
     top.update_idletasks()
-    px = splash.root.winfo_x() + (splash.W - top.winfo_width()) // 2
-    py = splash.root.winfo_y() + (splash.H - top.winfo_height()) // 2
+    try:
+        visible = bool(splash.root.winfo_viewable())
+    except Exception:
+        visible = False
+    if visible:
+        px = splash.root.winfo_x() + (splash.W - top.winfo_width()) // 2
+        py = splash.root.winfo_y() + (splash.H - top.winfo_height()) // 2
+    else:
+        px = (top.winfo_screenwidth() - top.winfo_width()) // 2
+        py = (top.winfo_screenheight() - top.winfo_height()) // 2
     top.geometry(f'+{max(0, px)}+{max(0, py)}')
 
     top.grab_set()
@@ -1214,6 +1228,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 

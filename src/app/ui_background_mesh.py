@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QLineEdit, QScrollArea, QFrame,
-                              QFileDialog, QMessageBox, QSizePolicy)
+                              QFileDialog, QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 from ui_shared import (
@@ -30,7 +30,7 @@ from ui_shared import (
     STYLE_BTN_PRIMARY, STYLE_BTN_GHOST, STYLE_BTN_SMALL_GHOST, STYLE_BTN_SMALL_RED,
     STYLE_ENTRY, STYLE_SCROLL,
     build_card, positive_float, run_of_command, to_wsl_path,
-    MessageBanner, scan_log_for_fix,
+    MessageBanner, scan_log_for_fix, load_prefs, save_prefs, msg_question,
 )
 
 try:
@@ -341,6 +341,14 @@ class BackgroundMeshWidget(QWidget):
         layout.addStretch()
         self._update_overwrite_banner()
 
+        # Restore last-used grid sizes from the per-user prefs file so a
+        # returning user does not have to re-type them every launch.
+        prefs = load_prefs()
+        for name in ("dx", "dy", "dz"):
+            val = prefs.get(f"bg_{name}")
+            if val is not None and positive_float(val) is not None:
+                self._d_edits[name].setText(str(val))
+
     # ── Slots ──────────────────────────────────────────────────────────────────
 
     def set_case_dir(self, case_dir: str):
@@ -389,12 +397,10 @@ class BackgroundMeshWidget(QWidget):
         inferred = p[:idx] if idx >= 0 else os.path.dirname(p)
 
         if inferred != os.getcwd():
-            reply = QMessageBox.question(
-                self, "Change working directory?",
-                f"Detected case root:\n  {inferred}\n\n"
-                "Change the working directory to this location?",
-                QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
+            if msg_question(
+                    self, "Change working directory?",
+                    f"Detected case root:\n  {inferred}\n\n"
+                    "Change the working directory to this location?"):
                 os.chdir(inferred)
                 self._log.write(
                     f"[Background Mesh] Case directory set to: {inferred}\n", "info")
@@ -489,6 +495,9 @@ class BackgroundMeshWidget(QWidget):
         dy  = float(self._d_edits["dy"].text())
         dz  = float(self._d_edits["dz"].text())
 
+        # Remember the grid sizes for the next app launch.
+        save_prefs({"bg_dx": dx, "bg_dy": dy, "bg_dz": dz})
+
         self._gen_btn.setEnabled(False)
         self._log.set_running(True)
         self._log.write("\n[Background Mesh] Starting…\n", "info")
@@ -535,6 +544,16 @@ class BackgroundMeshWidget(QWidget):
                 fix or "Background mesh failed. Open the log below and read the last "
                 "few red lines to see what went wrong.")
 
+    def cancel_run(self):
+        """Esc shortcut entry: stop a running job only — never touches the
+        typed inputs (unlike the Cancel button, which also clears the form)."""
+        if self._worker and self._worker.isRunning():
+            self._worker.terminate()
+            self._log.write("[Background Mesh] Cancelled.\n", "warn")
+            self._log.set_running(False)
+            self._gen_btn.setEnabled(True)
+            self._log.status_changed.emit("Cancelled", "#F59E0B")
+
     def _cancel(self):
         """Cancel button: stop a running job if there is one, otherwise ask
         before wiping the user's typed inputs, then clear everything."""
@@ -544,11 +563,10 @@ class BackgroundMeshWidget(QWidget):
                 self._stl_edit.text().strip()
                 or any(e.text().strip() for e in self._d_edits.values()))
             if has_input:
-                reply = QMessageBox.question(
-                    self, "Clear inputs?",
-                    "This clears the STL path and grid sizes you entered. Continue?",
-                    QMessageBox.Yes | QMessageBox.No)
-                if reply != QMessageBox.Yes:
+                if not msg_question(
+                        self, "Clear inputs?",
+                        "This clears the STL path and grid sizes you entered. "
+                        "Continue?"):
                     return
         if running:
             self._worker.terminate()

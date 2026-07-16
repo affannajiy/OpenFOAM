@@ -18,12 +18,14 @@ Sections
 
 import os
 import glob
+import json
 import subprocess
 from typing import Optional, Callable
 
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
-                              QLineEdit, QFrame, QComboBox, QLabel, QSizePolicy)
-from PyQt5.QtCore import Qt, pyqtSignal, QEvent
+                              QLineEdit, QFrame, QComboBox, QLabel, QSizePolicy,
+                              QMessageBox, QApplication)
+from PyQt5.QtCore import Qt, pyqtSignal, QEvent, QTimer
 
 # ── 1. Colour tokens ──────────────────────────────────────────────────────────
 # Brand / structural colours
@@ -628,6 +630,96 @@ def build_card(section_label: str, title: str, tip: str = None):
     vbox.addWidget(body_w)
 
     return card, body_vbox
+
+
+# ── 3b. User preferences ──────────────────────────────────────────────────────
+#
+# Small per-user JSON file remembering last-used numeric settings across app
+# restarts (grid sizes, unit, nCellsBetweenLevels, layers toggle).  Deliberately
+# NOT per-project: case-specific values (locationInMesh, file-table rows) are
+# excluded because they would be wrong when carried to a different geometry.
+
+_PREFS_PATH = os.path.expanduser("~/.openfoam_ui_prefs.json")
+
+
+def load_prefs() -> dict:
+    """Return the saved preferences dict, or {} if missing/corrupt."""
+    try:
+        with open(_PREFS_PATH) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_prefs(updates: dict):
+    """Merge *updates* into the prefs file (existing keys not in updates survive).
+    Best-effort — a read-only home dir must never break a mesh run."""
+    try:
+        prefs = load_prefs()
+        prefs.update(updates)
+        with open(_PREFS_PATH, "w") as f:
+            json.dump(prefs, f, indent=2)
+    except Exception:
+        pass
+
+
+# ── 3c. Centered message boxes ────────────────────────────────────────────────
+#
+# The WSLg/Weston compositor ignores Qt's default transient-window placement,
+# so a static QMessageBox.warning(...) pops up at the top-left of the screen.
+# An explicit move() IS honoured (that's how the main window centres itself),
+# so these helpers build a QMessageBox instance and re-centre it over the
+# parent's top-level window one event-loop tick after it is shown.
+
+def _center_over_parent(box: QMessageBox, parent):
+    """Move *box* so its centre matches the parent window's centre (or the
+    primary screen's centre when there is no parent)."""
+    try:
+        if parent is not None and parent.window() is not None:
+            target = parent.window().frameGeometry().center()
+        else:
+            target = QApplication.primaryScreen().availableGeometry().center()
+        frame = box.frameGeometry()
+        frame.moveCenter(target)
+        box.move(frame.topLeft())
+    except Exception:
+        pass  # placement is cosmetic — never let it break the dialog
+
+
+def _run_box(parent, icon, title, text,
+             buttons=QMessageBox.Ok, default=QMessageBox.NoButton):
+    """Build, centre and exec a QMessageBox; returns the clicked button."""
+    box = QMessageBox(parent)
+    box.setIcon(icon)
+    box.setWindowTitle(title)
+    box.setText(text)
+    box.setStandardButtons(buttons)
+    if default != QMessageBox.NoButton:
+        box.setDefaultButton(default)
+    # singleShot(0, ...) runs after show() inside exec_(), when the box has
+    # its final size — centring before show() would use a wrong geometry.
+    QTimer.singleShot(0, lambda: _center_over_parent(box, parent))
+    return box.exec_()
+
+
+def msg_info(parent, title, text):
+    _run_box(parent, QMessageBox.Information, title, text)
+
+
+def msg_warning(parent, title, text):
+    _run_box(parent, QMessageBox.Warning, title, text)
+
+
+def msg_critical(parent, title, text):
+    _run_box(parent, QMessageBox.Critical, title, text)
+
+
+def msg_question(parent, title, text, default_no=False) -> bool:
+    """Yes/No question; returns True when the user picks Yes."""
+    default = QMessageBox.No if default_no else QMessageBox.NoButton
+    return _run_box(parent, QMessageBox.Question, title, text,
+                    QMessageBox.Yes | QMessageBox.No, default) == QMessageBox.Yes
 
 
 # ── 4. CFD helpers ────────────────────────────────────────────────────────────
