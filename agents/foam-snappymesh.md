@@ -17,7 +17,7 @@ valid snappyHexMeshDict and running snappyHexMesh successfully.
 - src/app/templates/snappyHexMeshDict.template
 
 ## Reference Files (read only, never modify)
-- workflow_package/.../configure_snappyHexMeshDict/ — Vijay's reference template+JSON
+- Archived/VIJ-03/configure_snappyHexMeshDict/ — Vijay's reference template+JSON
   workflow this backend adopts. Consult for the faceZone+cellZone pattern.
 - src/app/ui_snappy_hex.py — read to understand what config dict the GUI passes in
 - src/app/generateSnappyHexMeshDict.py — legacy foamDictionary CLI; reference only, do NOT mirror

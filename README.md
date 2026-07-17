@@ -273,7 +273,7 @@ C:\OpenFOAM\
 │       ├── build.bat                    # One-command build: EXE + installer
 │       └── installer.iss                # Inno Setup script
 ├── Demo-01\, Demo-02\                   # Demo OpenFOAM cases (Demo-02: power-electronics STLs)
-├── ANR-01..04\, VIJ-01..03\             # Working/test OpenFOAM cases
+├── Archived\                            # Old session trees (ANR-*) + Vijay's reference packages (VIJ-*)
 ├── agents\                              # Scoped subagent definitions
 ├── documentation\
 └── CLAUDE.md                            # AI assistant guidance

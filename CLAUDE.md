@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in this repo. Two layers: Python tooling (`src/`) and example OpenFOAM cases (`Demo-01/`, `Demo-02/`, `ANR-*/`, `VIJ-*/` — Demo-02 is the lecturer-demo case: power-electronics STL set, kept in clean pre-mesh state).
+Guidance for Claude Code working in this repo. Two layers: Python tooling (`src/`) and example OpenFOAM cases (`Demo-01/`, `Demo-02/` — Demo-02 is the lecturer-demo case: power-electronics STL set, kept in clean pre-mesh state). Historical ANR-* session trees and Vijay's VIJ-* reference packages live under `Archived/`.
 
 ## Environment
 
@@ -51,7 +51,7 @@ Landing page → create/open a project → pick a utility → Continue. CLI tool
 - **Boundary** = outer shell / external wall; the mesh stops there. Gets `patchInfo { type wall; inGroups (walls); }`. **A Boundary shell must NOT get a volume refinement region** — a region on the domain limit is a no-op (inside) or refines the discarded padding shell into a mesh finer at the edges than at the surface (a blobby result). Both the GUI (locked Vol Dir) and `snappy_generator` (skips + warns) enforce this.
 - **FaceZone + Cell Zone** = a solid body inside the domain: gets `faceZone`/`faceType internal` plus `cellZoneInside inside`/`cellZone <name>` so the interior cells are **kept and named**. FaceZone *without* Cell Zone tags faces only and discards the inner cells — this was the root cause of "inner cylinder invisible inside the cube". Mirrors Vijay's `inductor` in the reference workflow.
 - `features ( )` always empty (implicit snapping). Per-patch layers rendered from `addLayersControls.layers`; `fvSchemes`/`fvSolution` not written (built-in medial-axis shrinker). `defaults.json` holds the control blocks, numbers aligned to the reference workflow (`minVol 1e-40`, etc.).
-- Reference: `workflow_package/openfoam_electronics_thermal_mgmt/configure_snappyHexMeshDict/` (Vijay's `setup_snappy.py` + templates). The GUI adopts its template+JSON approach but drops trimesh/AUTO_ auto-refinement and encoding names.
+- Reference: `Archived/VIJ-03/configure_snappyHexMeshDict/` (Vijay's `setup_snappy.py` + templates). The GUI adopts its template+JSON approach but drops trimesh/AUTO_ auto-refinement and encoding names.
 
 ## Do-not-modify
 

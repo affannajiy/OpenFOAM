@@ -24,6 +24,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   PyInstaller installed only when missing, always builds EXE + installer in
   one chain.
 
+### Changed
+- Moved the historical ANR-01..04 session trees and Vijay's VIJ-01..03
+  reference packages under `Archived/` — the live repo is now `src/` plus
+  the two demo cases.
+
 ### Fixed
 - Build script no longer corrupts non-ASCII characters in
   `openfoam_ui_launcher.py` when patching the splash version label

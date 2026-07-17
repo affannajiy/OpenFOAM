@@ -4,7 +4,7 @@ snappy_generator.py — Backend for Tab 2 (SnappyHexMesh Dict generator and runn
 
 Renders system/snappyHexMeshDict in one pass from a Jinja2 template
 (templates/snappyHexMeshDict.template), following the template+JSON workflow
-from workflow_package/openfoam_electronics_thermal_mgmt (Vijay's
+from Archived/VIJ-03/configure_snappyHexMeshDict (Vijay's
 setup_snappy.py), then runs snappyHexMesh -overwrite.
 
 Key differences from the old foamDictionary-chain implementation:
@@ -349,7 +349,7 @@ def _write_inputs_record(config: dict, case_dir: str, defaults: dict, log_cb) ->
     """
     Write snappy_inputs.json into the case directory — a human-readable record
     of exactly what the GUI meshed, in a schema close to the reference
-    workflow's (workflow_package). Informational only: the engine renders from
+    workflow's (Archived/VIJ-03). Informational only: the engine renders from
     the in-memory config, never from this file.
     """
     files_cfg  = config.get("geometry", {}).get("files", [])
