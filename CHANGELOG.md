@@ -4,6 +4,34 @@ All notable changes to the OpenFOAM UI project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026-07-17] — One-File Installer v1.1.0
+
+### Added
+- **One-file Windows installer** `OpenFOAM_UI_Setup_<version>.exe` (Inno
+  Setup 6, `deploy/installer.iss`): per-user install to
+  `%LOCALAPPDATA%\Programs\OpenFOAM-UI` (no admin rights), desktop +
+  Start-Menu shortcuts (replaced in place on reinstall), Demo-01/Demo-02
+  sample cases copied to `Documents\OpenFOAM-Projects` (existing files never
+  overwritten, never uninstalled), Add/Remove Programs entry with a real
+  uninstaller, and a hard gate for Windows builds older than 21362 (no
+  WSLg). Deep environment checks remain in the launcher's self-healing
+  pre-flight.
+- Landing page New-project **Location defaults to the installer's
+  `Documents\OpenFOAM-Projects`** (via `install_info.json` written next to
+  the app), falling back to `~/OpenFOAM`.
+- Single build entry `deploy/build.bat` (replaces `build_exe.bat` +
+  `build_installer.bat`): version prompt defaults to the current version,
+  PyInstaller installed only when missing, always builds EXE + installer in
+  one chain.
+
+### Fixed
+- Build script no longer corrupts non-ASCII characters in
+  `openfoam_ui_launcher.py` when patching the splash version label
+  (PowerShell 5.1 misread the BOM-less UTF-8 source as ANSI; now patched
+  via UTF-8 `[IO.File]` round-trip).
+- `version_info.txt` version-tuple drift repaired (`filevers` said 1.0.5
+  while `FileVersion` said 1.0.6).
+
 ## [2026-07-16] — Self-Healing Launcher v1.0.6 + Live Environment Detection
 
 ### Added

@@ -1,29 +1,32 @@
-- The directory `constant/orig_triSurface` contains the user provided stl files without any change in names. This has to remain.
+# Demo-02 — Power Electronics Meshing Demo
 
-- Copy
-```
-cp constant/orig_triSurface constant/triSurface
-```
+Demo case for the OpenFOAM UI: a power-electronics assembly (PCB, heat sinks,
+MOSFETs, inductor, transformer, EMI shields, fan) inside an outer air domain.
 
-- Open the `tools/geometry_renamer.html` file in Google Chrome > Browse and Upload the triSurface folder containing the stl files
+The case is kept in a **clean pre-mesh state** — only geometry and solver
+control dicts. Everything else is generated live by the GUI.
 
-- Make encoding changes (Encoding on/off, auto refinement on/off, Surface type: Boundary/faceZone, Whether cellZone, Vol. refinement etc etc)
+## Demo flow
 
-- Click on `Copy to Clipboard` button > Go to the triSurface directory in your linux terminal > Paste and hit enter > Files are renamed!
+1. Launch `OpenFOAM_UI.exe` → **Open Existing Project** → select this folder.
+2. **Background Mesh** tab: pick `constant/triSurface/outer-domain.stl`,
+   set grid spacing, **Run** — writes `system/blockMeshDict`, runs `blockMesh`.
+3. Click **Continue to Snappy Hex Mesh →** on the green success banner.
+4. **SnappyHexMesh** tab: table lists every STL.
+   - `outer-domain.stl` → Surface Type **Boundary** (auto-suggested for the
+     largest shell).
+   - Components (heat sinks, MOSFETs, inductor, …) → **FaceZone + Cell Zone**,
+     Vol Dir **Inside** — interior cells kept and named per component.
+5. **Suggest point** for Location In Mesh, then **Generate & Run**.
+6. Green banner → open the result in ParaView via the header button
+   (`Demo-02.foam`).
 
-- Go to the case directory: `cd ../../` and paste the copied contents in the terminal
+## Contents
 
-- Save the geometric files list to a new file: 
-```
-ls -1 constant/triSurface/ > geom_files.txt
-```
+- `constant/triSurface/*.stl` — component geometry (millimetres).
+- `system/controlDict`, `fvSchemes`, `fvSolution`, `decomposeParDict` —
+  solver controls (untouched by the meshing GUI).
 
-- Make changes to `snappy_inputs.json` file as required.
-
-- Run the `setup_snappy.py` script with python3 > `blockMeshDict` and `snappyHexMeshDict` will be generated
- 
-- WARNING: This point is just for information and don't do it unless necessary. If you want to delete the folder for other purpose, follow the following:
-```
-chmod -R u+w constant/orig_triSurface
-rm -rf constant/orig_triSurface
-```
+`system/blockMeshDict`, `system/snappyHexMeshDict`, `constant/polyMesh/`,
+`snappy_inputs.json`, and `*.foam` are generated at demo time — delete them to
+reset the case.

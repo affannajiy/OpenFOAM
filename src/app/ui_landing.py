@@ -35,6 +35,23 @@ from ui_shared import (
 )
 
 
+def _default_project_location() -> str:
+    """Default New-project Location: the Documents\\OpenFOAM-Projects folder
+    created by the Windows installer (recorded as a WSL path in
+    install_info.json next to the app), else ~/OpenFOAM. utf-8-sig because
+    Inno Setup's SaveStringsToUTF8File writes a BOM."""
+    info = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "install_info.json")
+    try:
+        with open(info, encoding="utf-8-sig") as fh:
+            d = json.load(fh).get("projects_dir", "")
+        if d and os.path.isdir(d):
+            return d
+    except (OSError, ValueError):
+        pass
+    return os.path.expanduser("~/OpenFOAM")
+
+
 def _sanitize_name(raw: str) -> str:
     """Replace characters that make bad folder names (spaces, punctuation) with
     underscores, so the project name is always a safe directory name. Kept
@@ -389,7 +406,7 @@ class LandingWidget(QWidget):
         vbox.addWidget(self._field_label("L O C A T I O N"))
         loc_row = QHBoxLayout()
         loc_row.setSpacing(8)
-        self._loc_edit = QLineEdit(os.path.expanduser("~/OpenFOAM"))
+        self._loc_edit = QLineEdit(_default_project_location())
         self._loc_edit.setStyleSheet(STYLE_ENTRY)
         self._loc_edit.setToolTip(
             "Where the case folder is created. Must be reachable\n"
@@ -840,6 +857,7 @@ class LandingWidget(QWidget):
 
     @staticmethod
     def _ghost_btn_ss() -> str:
+        """Stylesheet for secondary ('ghost') buttons — subtle bg, red hover."""
         return f"""
             QPushButton {{
                 background: {BG_SUBTLE};

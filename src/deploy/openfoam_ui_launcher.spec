@@ -3,7 +3,7 @@
 # Run from the deploy directory:
 #   pyinstaller openfoam_ui_launcher.spec
 #
-# Or use build_exe.bat which handles icon generation and cleanup automatically.
+# Or use build.bat which handles versioning, cleanup, and the installer.
 #
 # The launcher uses only: tkinter, subprocess, sys, os, time.
 #

@@ -63,6 +63,7 @@ LOG_CMD       = "#64748B"   # lines tagged "cmd" (the command that was run)
 # newest /usr/lib/openfoam install, else the 2506 default path.
 
 def _detect_of_bashrc() -> str:
+    """Locate the OpenFOAM bashrc: launch env → newest install → 2506 default."""
     proj = os.environ.get("WM_PROJECT_DIR", "").strip()
     if proj:
         cand = os.path.join(proj, "etc", "bashrc")
@@ -909,14 +910,17 @@ def _run_box(parent, icon, title, text,
 
 
 def msg_info(parent, title, text):
+    """Info popup (in-window overlay — see _PopupOverlay)."""
     _run_box(parent, QMessageBox.Information, title, text)
 
 
 def msg_warning(parent, title, text):
+    """Warning popup (in-window overlay — see _PopupOverlay)."""
     _run_box(parent, QMessageBox.Warning, title, text)
 
 
 def msg_critical(parent, title, text):
+    """Error popup (in-window overlay — see _PopupOverlay)."""
     _run_box(parent, QMessageBox.Critical, title, text)
 
 
@@ -945,6 +949,7 @@ class _FlatIconProvider(QFileIconProvider):
         self._cache = {}
 
     def _flat(self, kind):
+        """Draw (and cache) a flat 24px glyph: folder, file, or red mesh file."""
         if kind in self._cache:
             return self._cache[kind]
         pm = QPixmap(24, 24)
@@ -969,6 +974,7 @@ class _FlatIconProvider(QFileIconProvider):
         return icon
 
     def icon(self, arg):
+        """QFileIconProvider hook — map files/folders to the flat glyphs."""
         if isinstance(arg, QFileInfo):
             if arg.isDir():
                 return self._flat("folder")
@@ -999,6 +1005,8 @@ class _FileCardFrame(QFrame):
         self._dlg = dlg
 
     def keyPressEvent(self, ev):
+        """Route Esc to the embedded dialog's reject() — the dialog only sees
+        Esc itself when keyboard focus is inside it."""
         if ev.key() == Qt.Key_Escape:
             self._dlg.reject()
             return
@@ -1098,6 +1106,9 @@ def _build_file_card(overlay, dlg, title, host):
 
 
 def _run_file_dialog(parent, title, directory, name_filter, mode):
+    """Show a file/folder picker as an in-window card (non-native QFileDialog
+    embedded in a _PopupOverlay). Falls back to a real dialog when no visible
+    host window exists. Backend for pick_open_file(s)/pick_existing_dir."""
     host = _host_window(parent)
     dlg = QFileDialog(None, title, directory, name_filter)
     dlg.setFileMode(mode)

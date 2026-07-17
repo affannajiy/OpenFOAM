@@ -36,9 +36,11 @@ Python utilities for automating snappyHexMesh setup in ESI OpenFOAM v2506, with 
 
 ### Get the files
 
-Obtain the `src\` ZIP. It must contain every `.py` file, `defaults.json`, `requirements.txt`, `OpenFOAM_UI.exe`, and `templates\`. Do **not** include `__pycache__\`.
+**Recommended — one-file installer:** run `OpenFOAM_UI_Setup_<version>.exe`. It installs the app to `%LOCALAPPDATA%\Programs\OpenFOAM-UI` (per-user, no admin rights), creates desktop + Start-Menu shortcuts (replaced in place on reinstall), copies the Demo-01/Demo-02 sample cases to `Documents\OpenFOAM-Projects` (kept as-is if already there), and refuses to install on Windows builds older than 21362 (no WSLg). Everything deeper — WSL, Ubuntu, OpenFOAM, Python packages — is checked and self-healed by the launcher at first run.
 
-### Place the files
+**Manual fallback — ZIP:** obtain the `app\` ZIP. It must contain every `.py` file, `defaults.json`, `requirements.txt`, `OpenFOAM_UI.exe`, and `templates\`. Do **not** include `__pycache__\`.
+
+### Place the files (ZIP route only)
 
 Extract anywhere Windows-reachable under `/mnt/` from WSL. Recommended: `C:\OpenFOAM\src\` (WSL: `/mnt/c/OpenFOAM/src/`).
 
@@ -248,7 +250,7 @@ Install extra libraries: `sudo apt-get install python3-<name>` or `pip3 install 
 ```
 C:\OpenFOAM\
 ├── src\
-│   ├── app\                            # Distribution ZIP — all end-user files
+│   ├── app\                            # Installer payload — all end-user files
 │   │   ├── openfoam_ui.py              # PyQt5 GUI entry point
 │   │   ├── ui_shared.py                # Colour tokens, styles, shared helpers
 │   │   ├── ui_landing.py                # Landing page widget
@@ -268,8 +270,10 @@ C:\OpenFOAM\
 │       ├── generate_icon.py
 │       ├── openfoam_ui_launcher.spec
 │       ├── version_info.txt
-│       └── build_exe.bat
-├── 03_mesh_session\                     # Example OpenFOAM case
+│       ├── build.bat                    # One-command build: EXE + installer
+│       └── installer.iss                # Inno Setup script
+├── Demo-01\, Demo-02\                   # Demo OpenFOAM cases (Demo-02: power-electronics STLs)
+├── ANR-01..04\, VIJ-01..03\             # Working/test OpenFOAM cases
 ├── agents\                              # Scoped subagent definitions
 ├── documentation\
 └── CLAUDE.md                            # AI assistant guidance
@@ -289,24 +293,26 @@ C:\OpenFOAM\
 
 See `CLAUDE.md` for full detail.
 
-## Rebuilding the EXE
+## Building a release
 
-Only needed when `openfoam_ui_launcher.py` changes — other `.py` edits take effect on next launch.
+One command builds everything (~40 s):
 
 ```bat
 cd C:\OpenFOAM\src\deploy
-build_exe.bat
+build.bat
 ```
 
-Prompts for a version number, patches `version_info.txt` + the splash label, runs PyInstaller, copies the result to `..\app\OpenFOAM_UI.exe`. Requires Python 3.9+ on Windows; PyInstaller installs automatically.
+Prompts for a version number (Enter reuses the current one, read from `version_info.txt`), patches `version_info.txt` + the splash label, runs PyInstaller, copies the result to `..\app\OpenFOAM_UI.exe`, then compiles the one-file installer `dist\OpenFOAM_UI_Setup_<version>.exe` (skipped with a warning if Inno Setup 6 is missing — `winget install JRSoftware.InnoSetup`). Requires Python 3.9+ on Windows; PyInstaller installs automatically if missing.
+
+It always runs the full chain — the splash version label is baked into the EXE, so a partial build could ship an installer whose version disagrees with the splash. During development, `.py` edits take effect on next launch with no rebuild; building is only for cutting a distributable Setup EXE.
 
 ## Deployment Checklist
 
 **Before building:** changes committed on `main`; GUI tested end-to-end (landing → Tab 1 → Tab 2 → ParaView); `defaults.json`/templates correct; `requirements.txt` matches imports; `deploy\icons\openfoam_ui.ico` present.
 
-**Building:** run `build_exe.bat` on a clean machine; confirm `dist\OpenFOAM_UI.exe` built with no errors and was copied to `app\`.
+**Building:** run `build.bat` on a clean machine; confirm `dist\OpenFOAM_UI.exe` built with no errors, was copied to `app\`, and `dist\OpenFOAM_UI_Setup_<version>.exe` was produced.
 
-**Packaging:** ZIP `src\app\` (exe, all `.py`, `icons\`, `defaults.json`, `requirements.txt`, `templates\`); exclude `deploy\`, `__pycache__\`, `.pyc`; smoke-test from a clean extract.
+**Packaging:** distribute `deploy\dist\OpenFOAM_UI_Setup_<version>.exe` — that single file is the whole product. Smoke-test it: run the installer, check the desktop shortcut launches, `Documents\OpenFOAM-Projects` has Demo-01/Demo-02, and the landing page's Location defaults there. (ZIP of `src\app\` remains a manual fallback; exclude `deploy\`, `__pycache__\`, `.pyc`.)
 
 **What's bundled in the EXE:** only `openfoam_ui_launcher.py` + stdlib/tkinter. Everything else (`openfoam_ui.py`, `ui_*.py`, `snappy_generator.py`, PyQt5/numpy/jinja2, `defaults.json`) runs live from `.py` files in WSL.
 
