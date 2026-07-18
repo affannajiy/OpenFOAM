@@ -43,6 +43,7 @@ import os
 import time
 import base64
 import tempfile
+import json
 
 try:
     import winreg
@@ -76,7 +77,8 @@ _DISK_NEED_OPENFOAM_GB = 6
 _DISK_NEED_BASE_GB = 1
 
 # Path to the OpenFOAM bashrc that pre-flight confirmed exists.
-# Set by _detect_openfoam_bashrc(); read by main() to build the launch command.
+# Set by the merged probe in _do_checks (or restored from the fast-path
+# sentinel); read by main() to build the launch command.
 _DETECTED_BASHRC = None
 
 # WSL distro all commands target.  Set by _detect_distro(); None means
@@ -92,6 +94,89 @@ _SETUP_STATUS_TMP_WSL = '$HOME/.openfoam_ui_setup_status.tmp'
 _SETUP_SCRIPT_WSL = '$HOME/openfoam_ui_setup.sh'
 
 _LOG_PATH = os.path.join(tempfile.gettempdir(), 'openfoam_ui_launcher.log')
+
+# Fast-path sentinel: written after a fully successful launch (checks passed
+# AND the GUI actually came up).  While it exists, later runs skip the full
+# check chain — one cheap WSL validation call instead of ~9 spawns + a Qt
+# probe.  Deleted whenever validation or the GUI launch fails, which drops
+# the next run back to the full self-healing checks automatically.
+_FASTPATH_SENTINEL = os.path.join(tempfile.gettempdir(),
+                                  'openfoam_ui_checks_ok.json')
+
+
+def _load_fastpath():
+    """Return {'distro': …, 'bashrc': …} from the sentinel, or None."""
+    try:
+        with open(_FASTPATH_SENTINEL, encoding='utf-8') as f:
+            data = json.load(f)
+        if data.get('distro') and data.get('bashrc'):
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _save_fastpath():
+    try:
+        with open(_FASTPATH_SENTINEL, 'w', encoding='utf-8') as f:
+            json.dump({'distro': _DISTRO, 'bashrc': _DETECTED_BASHRC}, f)
+        _log('fast-path sentinel saved')
+    except Exception:
+        pass
+
+
+def _clear_fastpath():
+    try:
+        os.remove(_FASTPATH_SENTINEL)
+        _log('fast-path sentinel cleared')
+    except Exception:
+        pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Single-instance guard
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Keep a module-level reference to the mutex handle so it stays open for the
+# launcher's whole lifetime; Windows releases it automatically at process exit.
+_INSTANCE_MUTEX = None
+
+_GUI_WINDOW_TITLE = 'OpenFOAM GUI'   # must match MainWindow.setWindowTitle
+
+
+def _focus_existing_gui():
+    """If the GUI is already open (WSLg windows are real Windows windows),
+    bring it to the foreground and return True — the standard second-click
+    behaviour (Word, VS Code, …): focus, don't duplicate."""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, _GUI_WINDOW_TITLE)
+        if hwnd:
+            user32.ShowWindow(hwnd, 9)          # SW_RESTORE (un-minimise)
+            user32.SetForegroundWindow(hwnd)
+            return True
+    except Exception as exc:
+        _log(f'focus-existing check failed: {exc}')
+    return False
+
+
+def _acquire_instance_mutex():
+    """Take the launcher's named mutex.  Returns False when another launcher
+    is already mid-startup (splash/checks phase, before the GUI window exists
+    for _focus_existing_gui to find).  Fails open on any API error — a rare
+    double window beats a launcher that refuses to start."""
+    global _INSTANCE_MUTEX
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        _INSTANCE_MUTEX = kernel32.CreateMutexW(
+            None, False, 'Local\\OpenFOAM_UI_Launcher')
+        if kernel32.GetLastError() == 183:      # ERROR_ALREADY_EXISTS
+            return False
+    except Exception as exc:
+        _log(f'instance mutex failed (continuing): {exc}')
+    return True
 
 # Per-component failure help: label, manual fix command(s), likely cause.
 _FAIL_INFO = {
@@ -937,7 +1022,11 @@ def _check_disk_space(need_openfoam):
 def _detect_openfoam_bashrc():
     """Detect which OpenFOAM bashrc is available — prefer 2506, fall back to
     2312.  Updates the module-level _DETECTED_BASHRC and returns it (or None
-    if neither version is installed)."""
+    if neither version is installed).
+
+    NOTE: the pre-flight happy path no longer calls this (the merged probe
+    in _do_checks covers it in one WSL round trip); kept for repair flows.
+    """
     global _DETECTED_BASHRC
     rc, out, _ = _wsl(
         f'test -f {_FOAM_BASHRC_2506} && echo 2506 || '
@@ -1294,20 +1383,40 @@ def _do_checks(splash, consent_given, install_attempts):
             'runs, but no files are lost.'
         )
 
-    # ── Step 3: WSLg display environment ─────────────────────────────────────
+    # ── Steps 3–5 (one WSL call): display env + OpenFOAM bashrc + python3
+    # + package check.  Each wsl.exe spawn costs 150–400 ms and the package
+    # loop imports PyQt5, so folding four sequential probes into a single
+    # bash script saves seconds on every full-check run.  Output is one
+    # KEY=value line per probe, parsed below.
     tick('Checking WSLg display…')
-    display_env = False
+    imports = ' '.join(imp for imp, _ in _REQUIRED_PACKAGES)
+    probe_script = (
+        'printf "DISP=%s%s\\n" "$DISPLAY" "$WAYLAND_DISPLAY"; '
+        f'if test -f {_FOAM_BASHRC_2506}; then printf "FOAM=2506\\n"; '
+        f'elif test -f {_FOAM_BASHRC_2312}; then printf "FOAM=2312\\n"; '
+        'else printf "FOAM=none\\n"; fi; '
+        'if command -v python3 >/dev/null 2>&1; then printf "PY=yes\\n"; '
+        f'miss=""; for p in {imports}; do '
+        'python3 -c "import $p" 2>/dev/null || miss="$miss $p"; done; '
+        'printf "MISS=%s\\n" "$miss"; '
+        'else printf "PY=no\\n"; printf "MISS=\\n"; fi'
+    )
+
+    probe_vals = {}
     env_deadline = time.time() + 15
-    while time.time() < env_deadline:
-        rc, out, _ = _wsl('printf "%s%s" "$DISPLAY" "$WAYLAND_DISPLAY"',
-                          timeout=10)
-        if rc == 0 and out.strip():
-            display_env = True
+    while True:
+        rc, out, _ = _wsl(probe_script, timeout=25)
+        if rc == 0:
+            probe_vals = dict(
+                ln.split('=', 1) for ln in out.splitlines() if '=' in ln)
+            if probe_vals.get('DISP', '').strip():
+                break
+        if time.time() >= env_deadline:
             break
         splash.set_status('Waiting for WSLg display environment…')
         splash.pump()
         time.sleep(2)
-    if not display_env:
+    if not probe_vals.get('DISP', '').strip():
         return 'retry-update', 'No Display Available', (
             'Neither $DISPLAY nor $WAYLAND_DISPLAY is set inside WSL.\n\n'
             'The GUI requires WSLg (Windows Subsystem for Linux GUI).\n'
@@ -1334,28 +1443,20 @@ def _do_checks(splash, consent_given, install_attempts):
         _log(f'xcb probe failed — will install display libraries: '
              f'{(probe_detail or "")[:200]}')
 
-    # ── Step 4: OpenFOAM bashrc — detect, don't fail here ────────────────────
+    # ── Steps 4–5: interpret the merged probe (no further WSL calls) ─────────
     tick('Checking OpenFOAM installation…')
-    bashrc = _detect_openfoam_bashrc()
-    install_openfoam = bashrc is None
+    global _DETECTED_BASHRC
+    foam = probe_vals.get('FOAM', 'none')
+    _DETECTED_BASHRC = {'2506': _FOAM_BASHRC_2506,
+                        '2312': _FOAM_BASHRC_2312}.get(foam)
+    install_openfoam = _DETECTED_BASHRC is None
 
-    # ── Step 5: python3 + Python packages — detect, don't install yet ───────
     tick('Checking Python packages…')
-    rc, _, _ = _wsl('python3 --version', timeout=10)
-    python3_missing = rc != 0
+    python3_missing = probe_vals.get('PY') != 'yes'
     if python3_missing:
         missing = [imp for imp, _ in _REQUIRED_PACKAGES]
     else:
-        imports = ' '.join(imp for imp, _ in _REQUIRED_PACKAGES)
-        rc, out, _ = _wsl(
-            f'miss=""; '
-            f'for p in {imports}; do python3 -c "import $p" 2>/dev/null '
-            f'|| miss="$miss $p"; done; '
-            f'printf "%s" "$miss"',
-            timeout=20,
-        )
-        missing = (out.strip().split() if rc == 0
-                   else [imp for imp, _ in _REQUIRED_PACKAGES])
+        missing = probe_vals.get('MISS', '').strip().split()
 
     # ── Step 6: Interactive install gate ─────────────────────────────────────
     tick('Reviewing installation requirements…')
@@ -1650,6 +1751,7 @@ def _run_checks(splash):
 
 def main():
     """Show the splash, run pre-flight checks, then launch openfoam_ui.py inside WSL."""
+    global _DISTRO, _DETECTED_BASHRC
     # Keep the diagnostic log from growing without bound.
     try:
         if (os.path.exists(_LOG_PATH)
@@ -1659,9 +1761,45 @@ def main():
         pass
     _log('───── launcher start ─────')
 
+    # Single instance: GUI already open → focus it and leave; another
+    # launcher still starting up → leave silently (its splash is visible).
+    if _focus_existing_gui():
+        _log('GUI already running — focused existing window, exiting')
+        return
+    if not _acquire_instance_mutex():
+        _log('another launcher is already starting — exiting')
+        return
+
     splash = _Splash()
 
-    if not _run_checks(splash):
+    # Fast path: the last run passed every check AND the GUI came up, so skip
+    # the full chain — boot WSL if needed, then one combined validation call
+    # (bashrc still there + PyQt5 still importable).  Any miss falls back to
+    # the full self-healing checks and clears the sentinel.
+    fastpath_ok = False
+    fast = _load_fastpath()
+    if fast:
+        _DISTRO = fast['distro']
+        _DETECTED_BASHRC = fast['bashrc']
+        splash.set_status('Starting…')
+        splash.set_progress(0.3)
+        if _wait_for_wsl(splash) == 'ok':
+            rc, out, _ = _wsl(
+                f"test -f '{_DETECTED_BASHRC}' "
+                "&& python3 -c 'import PyQt5' && echo ok",
+                timeout=25)
+            if (rc == 0 and out.strip() == 'ok'
+                    and os.path.isfile(
+                        os.path.join(_get_exe_dir(), 'openfoam_ui.py'))):
+                fastpath_ok = True
+                _log('fast path: full checks skipped')
+        if not fastpath_ok:
+            _clear_fastpath()
+            _DISTRO = None
+            _DETECTED_BASHRC = None
+            splash.set_progress(0.0)
+
+    if not fastpath_ok and not _run_checks(splash):
         splash.close()
         sys.exit(1)
 
@@ -1677,15 +1815,23 @@ def main():
     # Redirect the GUI's stdout/stderr to a file inside WSL so a silent
     # XCB crash leaves evidence behind for the watchdog to read back.
     log_path_wsl = '/tmp/openfoam_ui_launch.log'
-    ready_path_wsl = '/tmp/openfoam_ui_ready'
 
-    # Clear any stale ready-sentinel from a previous run so we don't false-
-    # positive an instant close on a GUI that hasn't started yet.
-    _wsl(f'rm -f {ready_path_wsl}', timeout=5)
+    # Ready sentinel lives on the WINDOWS side (%TEMP%): the GUI writes it
+    # through /mnt/c, and the watchdog below checks os.path.exists — a free
+    # local stat instead of spawning wsl.exe every 200 ms.
+    ready_path_win = os.path.join(tempfile.gettempdir(), 'openfoam_ui_ready')
+    try:
+        # Clear any stale ready-sentinel from a previous run so we don't
+        # false-positive an instant close on a GUI that hasn't started yet.
+        os.remove(ready_path_win)
+    except OSError:
+        pass
+    ready_path_wsl = windows_path_to_wsl(ready_path_win)
 
     launch_cmd = (
         f"source '{bashrc}' && "
         f"cd '{wsl_dir}' && "
+        f"OPENFOAM_UI_READY_FILE='{ready_path_wsl}' "
         f"python3 '{wsl_dir}/openfoam_ui.py' "
         f"> {log_path_wsl} 2>&1"
     )
@@ -1724,6 +1870,7 @@ def main():
                 timeout=5,
             )
             _log(f'GUI exited immediately (code {ret})')
+            _clear_fastpath()   # next run re-proves the environment
             xcb_hint = ''
             lowered = (log_out or '').lower()
             if 'xcb' in lowered or 'platform plugin' in lowered:
@@ -1741,12 +1888,10 @@ def main():
             sys.exit(1)
 
         # Ready signal — GUI window is mapped; close splash immediately.
-        _, out, _ = _wsl(
-            f'test -f {ready_path_wsl} && echo yes',
-            timeout=3,
-        )
-        if out.strip() == 'yes':
+        # Local stat on the Windows temp file — no wsl.exe spawn per poll.
+        if os.path.exists(ready_path_win):
             _log('GUI ready')
+            _save_fastpath()    # this run proved the whole chain works
             break
 
     splash.close()

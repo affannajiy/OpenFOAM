@@ -888,21 +888,34 @@ class _MessageCard(QFrame):
             super().keyPressEvent(event)
 
 
+def _run_box_standalone(icon, title, text, buttons, default):
+    """Popup with no visible host window (e.g. the single-instance notice
+    fired before the main window exists). A small top-level dialog cannot be
+    used — Weston shoves it to a screen corner — but it does respect
+    fullscreen windows, so the card is hosted in a temporary frameless
+    fullscreen backdrop and rendered by the same overlay/card widgets as
+    every in-window popup."""
+    host = QWidget(None, Qt.FramelessWindowHint)
+    host.setAttribute(Qt.WA_TranslucentBackground, True)
+    host.showFullScreen()
+    try:
+        overlay = _PopupOverlay(host)
+        card = _MessageCard(overlay, icon, title, text, buttons, default)
+        result = overlay.run(card)
+    finally:
+        host.close()
+        host.deleteLater()
+    return result if result is not None else QMessageBox.Cancel
+
+
 def _run_box(parent, icon, title, text,
              buttons=QMessageBox.Ok, default=QMessageBox.NoButton):
     """Show an in-window message popup; returns the clicked button role.
-    Falls back to a plain QMessageBox when no host window exists (e.g. a
-    popup fired before the main window is shown)."""
+    When no host window exists yet, _run_box_standalone hosts the same card
+    in a temporary fullscreen backdrop instead."""
     host = _host_window(parent)
     if host is None or not host.isVisible():
-        box = QMessageBox(parent)
-        box.setIcon(icon)
-        box.setWindowTitle(title)
-        box.setText(text)
-        box.setStandardButtons(buttons)
-        if default != QMessageBox.NoButton:
-            box.setDefaultButton(default)
-        return box.exec_()
+        return _run_box_standalone(icon, title, text, buttons, default)
     overlay = _PopupOverlay(host)
     card = _MessageCard(overlay, icon, title, text, buttons, default)
     result = overlay.run(card)

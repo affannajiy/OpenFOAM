@@ -4,6 +4,45 @@ All notable changes to the OpenFOAM UI project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026-07-18] — Faster Launch, Single Instance, Popup Polish
+
+### Added
+- **Single-instance guard** (three layers): clicking the shortcut while the
+  app is open now focuses the existing window instead of opening a second
+  copy — launcher finds and raises the running "OpenFOAM GUI" window; a
+  named mutex (`Local\OpenFOAM_UI_Launcher`) stops a second launcher during
+  startup; a `QLockFile` in the GUI backstops manual WSL runs (stale locks
+  from crashes recovered automatically) and shows a styled "Already
+  running" notice.
+- **Launcher fast path**: after one fully successful launch, a sentinel
+  (`%TEMP%\openfoam_ui_checks_ok.json`) lets later launches skip the full
+  pre-flight — one quick validation call instead of ~9 WSL round-trips.
+  Cleared automatically if validation fails or the GUI crashes at startup.
+- Standalone popup fallback `_run_box_standalone`: popups fired before the
+  main window exists (e.g. the "Already running" notice) now render the
+  same minimalist centred card inside a fullscreen dimmed backdrop instead
+  of a stock Qt message box.
+
+### Changed
+- **PyInstaller build switched to one-dir** (exe + `_internal\`, UPX off):
+  removes the per-launch self-extraction to `%TEMP%` and repeated
+  antivirus rescans that made first runs slow. `build.bat` copies the whole
+  folder; `installer.iss` unchanged (already ships the folder wholesale).
+- Launcher pre-flight steps 3–5 (bashrc, python3, packages) merged into a
+  single WSL probe call; GUI-ready detection moved to a Windows-side file
+  (`%TEMP%\openfoam_ui_ready` via `OPENFOAM_UI_READY_FILE`) so the
+  watchdog no longer spawns a WSL process every 200 ms.
+- `CLAUDE.md` and `README.md` rewritten lean — same facts, roughly half
+  the length; README now leads new users through the installer path.
+
+### Fixed
+- Tooltips on the header bar (Home, ParaView, tab pills), landing-page
+  cards/segments, and log-drawer buttons no longer render black-on-black —
+  `STYLE_TOOLTIP` appended to every inline widget stylesheet that was
+  missing it.
+- Two app windows could be opened by double-clicking the shortcut twice
+  and then refused to close — resolved by the single-instance guard above.
+
 ## [2026-07-17] — One-File Installer v1.1.0
 
 ### Added

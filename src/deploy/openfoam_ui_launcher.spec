@@ -37,20 +37,23 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# One-dir build (EXE + COLLECT), upx off:
+#  - one-file self-extracted ~10 MB to %TEMP%\_MEIxxxx on EVERY launch and
+#    made Defender re-scan the payload — the "slow first run" users noticed;
+#  - UPX-compressed exes decompress at each start and get extra AV scrutiny.
+# The app already ships as a folder (installer copies app\* wholesale), so
+# one-dir costs nothing: the exe's support files live in app\_internal\.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='OpenFOAM_UI',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -59,4 +62,15 @@ exe = EXE(
     entitlements_file=None,
     icon='icons/openfoam_ui.ico',
     version='version_info.txt',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='OpenFOAM_UI',
 )

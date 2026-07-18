@@ -98,6 +98,7 @@ echo [2/5] Cleaning old build artefacts...
 if exist build              rmdir /s /q build
 if exist dist               rmdir /s /q dist
 if exist ..\app\OpenFOAM_UI.exe  del /f /q ..\app\OpenFOAM_UI.exe
+if exist ..\app\_internal        rmdir /s /q ..\app\_internal
 echo.
 
 echo [3/5] Building EXE...
@@ -109,10 +110,12 @@ if errorlevel 1 (
 )
 echo.
 
-echo [4/5] Copying EXE to app\...
-copy /y dist\OpenFOAM_UI.exe ..\app\OpenFOAM_UI.exe
+echo [4/5] Copying EXE + support files to app\...
+:: One-dir build: dist\OpenFOAM_UI\ holds OpenFOAM_UI.exe + _internal\.
+:: Both must land in app\ together -- the exe cannot run without _internal.
+xcopy /e /i /y /q dist\OpenFOAM_UI ..\app
 if errorlevel 1 (
-    echo ERROR: Could not copy EXE to app\ -- copy it manually from dist\.
+    echo ERROR: Could not copy dist\OpenFOAM_UI to app\ -- copy it manually.
     pause
     exit /b 1
 )

@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                               QHBoxLayout, QLabel, QPushButton, QFrame,
                               QStackedWidget)
 from PyQt5.QtWidgets import QShortcut
-from PyQt5.QtCore import Qt, QTimer, qInstallMessageHandler
+from PyQt5.QtCore import Qt, QTimer, QLockFile, qInstallMessageHandler
 from PyQt5.QtGui import QIcon, QPixmap, QKeySequence
 
 
@@ -226,7 +226,7 @@ class MainWindow(QMainWindow):
                 font-size: 11px;
             }}
             QPushButton:hover {{ color: {TEXT_WHITE}; }}
-        """)
+        """ + STYLE_TOOLTIP)
         self._home_btn.setToolTip("Back to the landing page to switch project or utility.")
         self._home_btn.clicked.connect(self.show_landing)
         row.addWidget(self._home_btn)
@@ -304,7 +304,7 @@ class MainWindow(QMainWindow):
             }}
             QPushButton:hover {{ border-color: {LOG_CMD}; }}
             QPushButton:disabled {{ color: #6B7280; border-color: #374151; }}
-        """)
+        """ + STYLE_TOOLTIP)
         self._paraview_btn.setToolTip(
             "Open the current case in ParaView to inspect the mesh.\n"
             "ParaView must be installed on Windows.")
@@ -526,7 +526,7 @@ class MainWindow(QMainWindow):
                         font-size: 12px;
                         font-weight: 600;
                     }}
-                """)
+                """ + STYLE_TOOLTIP)
             else:
                 btn.setStyleSheet(f"""
                     QPushButton {{
@@ -539,7 +539,7 @@ class MainWindow(QMainWindow):
                         font-size: 12px;
                     }}
                     QPushButton:hover {{ color: {TEXT_WHITE}; border-color: {LOG_CMD}; }}
-                """)
+                """ + STYLE_TOOLTIP)
 
     # ── Status / CWD refresh ───────────────────────────────────────────────────
 
@@ -648,6 +648,20 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE_TOOLTIP)
+
+    # Single-instance guard (backstop for manual runs — the Windows launcher
+    # already refuses to start a second copy and focuses the existing window).
+    # QLockFile detects stale locks left by a crashed instance (dead PID) and
+    # takes over automatically, so no manual cleanup is ever needed.
+    lock = QLockFile("/tmp/openfoam_ui.lock")
+    if not lock.tryLock(100):
+        # No main window yet → msg_info renders the styled card in a
+        # fullscreen backdrop (see ui_shared._run_box_standalone).
+        msg_info(None, "Already running",
+                 "OpenFOAM GUI is already running.\n"
+                 "Use the window that is already open.")
+        sys.exit(0)
+
     win = MainWindow()
     win.show()
 
@@ -655,9 +669,14 @@ def main():
     # has processed the show event and mapped the window.  The launcher
     # watches for this file so it can close its splash the instant the GUI
     # is actually visible, rather than waiting for a fixed timeout.
+    # The launcher passes a Windows-side path (via /mnt/c) so it can watch
+    # for the file with a local stat instead of polling through wsl.exe;
+    # /tmp fallback keeps manual `python3 openfoam_ui.py` runs working.
     def _signal_ready():
         try:
-            with open('/tmp/openfoam_ui_ready', 'w') as f:
+            ready_path = os.environ.get('OPENFOAM_UI_READY_FILE',
+                                        '/tmp/openfoam_ui_ready')
+            with open(ready_path, 'w') as f:
                 f.write('ok')
         except Exception:
             pass

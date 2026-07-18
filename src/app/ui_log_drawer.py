@@ -27,7 +27,7 @@ from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve,
 from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
 
 from ui_shared import (LOG_BG, LOG_FG, LOG_ERROR, LOG_WARN, LOG_INFO, LOG_CMD,
-                        TEXT_MUTED, BORDER)
+                        TEXT_MUTED, BORDER, STYLE_TOOLTIP)
 
 COLLAPSED_H = 36
 EXPANDED_H  = 650
@@ -188,7 +188,7 @@ class LogDrawer(QWidget):
                 font-family: 'Segoe UI';
             }}
             QPushButton:hover {{ color: {LOG_FG}; border-color: {LOG_CMD}; }}
-        """
+        """ + STYLE_TOOLTIP
 
         self._copy_btn = QPushButton("Copy")
         self._copy_btn.setStyleSheet(_btn_style)
@@ -214,7 +214,7 @@ class LogDrawer(QWidget):
                 padding: 0 4px;
             }}
             QPushButton:hover {{ color: {LOG_FG}; }}
-        """)
+        """ + STYLE_TOOLTIP)
         self._chevron_btn.setToolTip("Collapse or expand the output log.")
         self._chevron_btn.clicked.connect(self._toggle)
         hdr_row.addWidget(self._chevron_btn)

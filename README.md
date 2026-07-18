@@ -1,6 +1,12 @@
 # OpenFOAM Mesh Generation Utilities
 
-Python utilities for automating snappyHexMesh setup in ESI OpenFOAM v2506, with a PyQt5 GUI and CLI fallbacks.
+A point-and-click GUI (plus CLI fallbacks) for setting up `blockMesh` and `snappyHexMesh` in ESI OpenFOAM v2506. Runs on Windows via WSL.
+
+> **About OpenFOAM** — two independent official variants exist:
+> - **ESI-OpenCFD / [openfoam.com](https://www.openfoam.com)** — source at [develop.openfoam.com](https://develop.openfoam.com/Development/openfoam). Versions like **v2506** — *this is the variant this tool targets*.
+> - **OpenFOAM Foundation / [openfoam.org](https://openfoam.org)** — source at [github.com/OpenFOAM/OpenFOAM-dev](https://github.com/OpenFOAM/OpenFOAM-dev).
+>
+> This project is an independent tool and is not affiliated with or endorsed by either organisation.
 
 ---
 
@@ -8,238 +14,123 @@ Python utilities for automating snappyHexMesh setup in ESI OpenFOAM v2506, with 
 
 ## Quick Start
 
-1. Go to `src\app\`.
-2. Double-click **`OpenFOAM_UI.exe`**.
-3. Startup window runs environment checks, then opens the GUI.
+Run the installer **`OpenFOAM_UI_Setup_<version>.exe`**, then double-click the desktop shortcut. The startup window checks your environment (and fixes most problems itself), then opens the GUI.
 
-> First run may take a few extra seconds while WSL wakes up.
+> First run may take longer while WSL wakes up and missing pieces are installed.
 
----
+**What you need:** Windows 11 (or Windows 10 build 21362+). Everything else — WSL, Ubuntu, OpenFOAM, Python packages — the launcher can detect and install for you with one click.
 
-## Fresh Installation (Windows + WSL + OpenFOAM)
+## Installing by Hand (optional)
 
-> Skip if WSL and OpenFOAM are already installed.
+Only needed if you prefer manual setup or the automatic installs are blocked:
 
-1. **Install WSL** — PowerShell as Administrator: `wsl --install`, then restart.
-2. **Install Ubuntu** — PowerShell as Administrator: `wsl --install Ubuntu`, then restart.
-3. **Open WSL** — Terminal → down arrow (⌄) next to tab bar → Ubuntu, or run `wsl -d Ubuntu`.
-4. **Install OpenFOAM** — from the Ubuntu terminal, in order:
+1. **WSL + Ubuntu** — admin PowerShell: `wsl --install`, restart, then `wsl --install Ubuntu`, restart.
+2. **OpenFOAM** — in the Ubuntu terminal (`wsl -d Ubuntu`):
    ```bash
    curl -s https://dl.openfoam.com/add-debian-repo.sh | sudo bash
    sudo apt-get update && sudo apt-get upgrade
    sudo apt-get install openfoam2506-default
    ```
+3. **Python packages** — `sudo apt-get install python3-pyqt5 python3-numpy python3-jinja2`
+   (PyQt5 = GUI, numpy = bounding-box math, jinja2 = dict templates).
 
----
+**ZIP fallback** (no installer): extract the `app\` folder anywhere on a Windows drive, e.g. `C:\OpenFOAM\src\app\`. Keep all files together (`.py`, `defaults.json`, `OpenFOAM_UI.exe`, `_internal\`, `templates\`); don't include `__pycache__\`.
 
-## Tool Setup
-
-### Get the files
-
-**Recommended — one-file installer:** run `OpenFOAM_UI_Setup_<version>.exe`. It installs the app to `%LOCALAPPDATA%\Programs\OpenFOAM-UI` (per-user, no admin rights), creates desktop + Start-Menu shortcuts (replaced in place on reinstall), copies the Demo-01/Demo-02 sample cases to `Documents\OpenFOAM-Projects` (kept as-is if already there), and refuses to install on Windows builds older than 21362 (no WSLg). Everything deeper — WSL, Ubuntu, OpenFOAM, Python packages — is checked and self-healed by the launcher at first run.
-
-**Manual fallback — ZIP:** obtain the `app\` ZIP. It must contain every `.py` file, `defaults.json`, `requirements.txt`, `OpenFOAM_UI.exe`, and `templates\`. Do **not** include `__pycache__\`.
-
-### Place the files (ZIP route only)
-
-Extract anywhere Windows-reachable under `/mnt/` from WSL. Recommended: `C:\OpenFOAM\src\` (WSL: `/mnt/c/OpenFOAM/src/`).
-
-### Install Python dependencies
-
-From the Ubuntu terminal:
-
+**Handy aliases** — add to `~/.bash_aliases` in WSL:
 ```bash
-sudo apt-get install python3-pip python3-pyqt5 python3-numpy python3-jinja2
-```
-
-Or with pip: `pip3 install -r /mnt/c/OpenFOAM/src/requirements.txt --break-system-packages`
-
-| Package | Purpose |
-|---------|---------|
-| `PyQt5` | GUI framework |
-| `numpy` | Bounding box arithmetic |
-| `jinja2` | snappyHexMeshDict template rendering |
-
-### Aliases (optional)
-
-```bash
-vi ~/.bash_aliases
-```
-Insert (`i`), add, save (`Esc` then `:wq`):
-```bash
-alias myDir="cd /mnt/c/OpenFOAM"
 alias of2506="source /usr/lib/openfoam/openfoam2506/etc/bashrc"
 alias openfoamUI="python3 /mnt/c/OpenFOAM/src/app/openfoam_ui.py"
 ```
-Apply: `source ~/.bash_aliases`
 
-### Source the OpenFOAM environment
+## What the Launcher Checks
 
-```bash
-source /usr/lib/openfoam/openfoam2506/etc/bashrc
-```
-Add to `~/.bashrc` to run automatically, or use the `of2506` alias.
+The startup window runs these in order. Most failures come with a one-click fix button:
 
----
+| Check | If missing |
+|---|---|
+| Windows build ≥ 21362 (WSLg) | Clear "Windows too old" message |
+| WSL installed | **Install WSL** button (admin prompt, optional restart) |
+| Ubuntu exists | **Install Ubuntu** button + guided first-run terminal |
+| WSL boots (waits up to 90 s) | **Try Again** |
+| WSL2 (not WSL1) | **Convert to WSL2** button |
+| WSLg display works | **Update WSL** button |
+| OpenFOAM + Python packages | One consent dialog, installed via apt |
+| Network / disk space | Warns before installing if blocked or low |
 
-## Prerequisites Summary
-
-| Requirement | Notes |
-|-------------|-------|
-| Windows 10 Build 21362+ or Windows 11 | Needed for WSLg |
-| WSL2 (not WSL1) | `wsl --install` sets this up |
-| OpenFOAM v2506 inside WSL | See installation steps above |
-| Python 3 + PyQt5, numpy, jinja2 inside WSL | Launcher installs via apt automatically on first run |
-
-## What the Launcher Checks (and Fixes Itself)
-
-Pre-flight steps run in order; most failures are **self-healing** — the launcher offers a one-click fix instead of just an error:
-
-| # | Step | If missing — what the launcher does |
-|---|------|------------|
-| 0 | Windows build ≥ 21362 (WSLg) | Clear "Windows too old" message up front |
-| 1 | WSL installed | **[Install WSL]** button — UAC prompt, then optional one-time **Restart Now** |
-| 2 | Ubuntu distro exists | **[Install Ubuntu]** button — downloads it, then opens a guided terminal to create your username/password |
-| 3 | Patient WSL boot (90s) | Click **Try Again** — VM still booting |
-| 4 | Distro is WSL2 (not WSL1) | **[Convert to WSL2]** button |
-| 5 | WSLg display + compositor | **[Update WSL]** button (`wsl --update` + restart WSL) |
-| 6 | OpenFOAM bashrc (2506, or 2312) | Included in the setup consent below |
-| 7 | Network + disk-space probes | Warns before setup if download servers are unreachable (corporate proxy) or disk is low |
-| 8 | Python packages + setup gate | Single consent dialog; apt-only install of Qt libs + PyQt5/numpy/jinja2 (+ OpenFOAM if missing) |
-| 9 | `openfoam_ui.py` present | Keep all files together in `src\app\` |
-
-If an automatic install can't run (admin permission declined / blocked by policy), the launcher shows numbered manual steps with a **Copy Command** button, and continues automatically on the next run once the install is done. Every error dialog has **Copy Details** — a full diagnostics report for IT tickets.
+If an install needs admin rights you don't have, the launcher shows numbered manual steps with a **Copy Command** button — do them (or ask IT), relaunch, and it continues where it left off. Every error dialog has **Copy Details** for IT tickets. Log: `%TEMP%\openfoam_ui_launcher.log`.
 
 ---
 
 ## Using the GUI
 
-Needs a display — automatic via WSLg on Windows 11; start an X server (VcXsrv/MobaXterm) on Windows 10.
-
 ### Landing Page
 
-- **New project** — enter name/location; creates `constant/triSurface/`, `system/`, `0/` and stub dicts. Name is auto-cleaned as you type (spaces/punctuation → `_`); `C:\…` locations are auto-converted to WSL `/mnt/…`.
-- **Template** — *Empty case*, or *From STL* (pick one or more `.stl`/`.obj` files, copied into `constant/triSurface/`).
-- **Open existing** — browse or pick from recents (max 10). Validates `system/controlDict` exists. Removing a recent entry (×) asks for confirmation first — the project folder itself is never deleted.
-- **Environment card** — shows the *detected* versions of OpenFOAM, ParaView, Ubuntu, and Python on this machine (green dot = found, grey = not found). Nothing is hardcoded — a different install (e.g. OpenFOAM 2312) shows its real version and is used automatically.
+- **New project** — name + location; creates the case folders and stub dicts. Names are auto-cleaned as you type; `C:\…` paths auto-convert to WSL form. Template: *Empty case* or *From STL* (picked files are copied into `constant/triSurface/`).
+- **Open existing** — browse or use recents. Removing a recent (×) asks first and never deletes the folder.
+- **Environment card** — live-detected versions of OpenFOAM, ParaView, Ubuntu, Python (green = found).
 
-Pick a utility, then click the footer **Open →** (enabled once a project and utility are both chosen; double-click a utility card also opens). **← Home** returns anytime.
+Choose a utility, then click **Open →** (or double-click the utility card). **← Home** returns anytime.
 
 ### Tab 1 — Background Mesh
 
-Generates `system/blockMeshDict` from an STL bounding box and runs `blockMesh`.
-
-1. **STL file** — browse or paste path; case root auto-detected from `constant/`.
-2. **Grid resolution** — DX/DY/DZ cell sizes (metres).
-3. **Generate Background Mesh** — runs `surfaceCheck` → writes dict → runs `blockMesh` → creates `.foam`.
-4. **Cancel** stops the job and clears inputs.
-
-On success a green banner offers **Continue to Snappy Hex Mesh →**; on failure a red banner shows a plain-language cause and fix (see [Error messages](#error-messages)).
+Builds the base grid: pick an STL, set DX/DY/DZ cell sizes (metres), click **Generate Background Mesh**. It runs `surfaceCheck`, writes `blockMeshDict`, runs `blockMesh`. Success shows a green banner with **Continue to Snappy Hex Mesh →**; failure shows a plain-language cause and fix.
 
 ### Tab 2 — SnappyHexMesh Dict
 
-Renders `system/snappyHexMeshDict` in one pass, records inputs to `snappy_inputs.json`, runs `snappyHexMesh`.
+Carves your geometry out of the background mesh.
 
-**Surface Type, plain words:** *Boundary* = outer shell, mesh stops there. *FaceZone + Cell Zone* = a solid part **inside** the domain — its cells are kept and tagged as a named group. Skip Cell Zone and the inner part's cells get thrown away (invisible in the mesh). A Boundary shell should never carry a Vol Dir — the GUI locks this to None automatically.
+**Surface Type in plain words:**
+- *Boundary* = the outer shell — the mesh stops there.
+- *FaceZone + Cell Zone* = a solid part **inside** the domain — its cells are kept and named. Skip Cell Zone and those cells are thrown away (part becomes invisible). A Boundary never takes a Vol Dir — the GUI locks it.
 
-| Section | Content |
-|---------|---------|
-| **01 Geometry** | File table (`.stl`/`.obj` under `constant/`): **Use** checkbox (untick to leave a file out of the mesh entirely — it stays on disk), Surface Type, refinement Min/Max (independent, default 0/0), Vol Dir + Vol Level (independent, default 0). Plus standard shapes (Box/Cylinder/Sphere). **Smart defaults**: largest file → Boundary; rest → FaceZone+CellZone+Inside. **Refresh file list** rescans and preserves your settings |
-| **02 Castellation** | Geometry unit, nCellsBetweenLevels, location-in-mesh X/Y/Z; **Suggest point** places it 60% from the largest boundary STL's centroid toward its max corner — verify it lands in fluid, outside any inner solid |
-| **03 Snap controls** | Implicit feature snapping always on — no `.eMesh`/`surfaceFeatureExtract` step |
-| **04 Layer addition** | Enable boundary layers; per-patch nSurfaceLayers, auto-populated from Section 01 |
-| **05 Generate & Run** | **Pre-flight check** (live ✓/✗ list: background mesh exists, a Boundary file is set, FaceZone files have Cell Zone, location-in-mesh set), then renders the dict, writes `snappy_inputs.json`, streams the solver log, cleans up numeric time dirs, refreshes `.foam` |
+| Section | What you set |
+|---|---|
+| **01 Geometry** | Table of every `.stl`/`.obj` under `constant/` + standard shapes. Per file: Use (untick to exclude), Surface Type, refinement Min/Max, Vol Dir + level. Smart defaults: biggest file → Boundary, rest → FaceZone+CellZone. Refresh keeps your settings |
+| **02 Castellation** | Unit, nCellsBetweenLevels, location-in-mesh point. **Suggest point** picks one for you — verify it's in fluid, not inside a solid |
+| **03 Snap** | Automatic (implicit feature snapping, nothing to configure) |
+| **04 Layers** | Optional boundary layers, per-patch counts |
+| **05 Generate & Run** | Live pre-flight ✓/✗ list, then renders the dict and streams the run |
 
-> Every input has a hover tooltip explaining valid choices and pitfalls — hover column headers for column-level help. Tooltips share one look across the whole app (white background, black text, red rounded border).
+> Hover anything for a tooltip — they are the built-in help.
 
-### Output Log
+### Log & Errors
 
-Bottom drawer, colour-coded tags (`error` red, `warn` amber, `info` blue, `cmd` grey). Drag to resize, click chevron to collapse. During a snappyHexMesh run the header shows a live **Step X/3** label (Castellating → Snapping → Adding layers) parsed from the solver's own output.
+Bottom drawer: colour-coded log, drag to resize, chevron to collapse. During snappy runs the header shows **Step X/3** (Castellating → Snapping → Adding layers). On failure, a red banner translates the raw OpenFOAM error into a plain cause and fix (bad location point, empty mesh, missing background mesh, non-watertight STL, …); the full log stays below.
 
-### Error messages
+### Case Folder Rules
 
-When a run fails, a red banner above the log translates the raw OpenFOAM output into a plain-language cause and fix — covering common cases like a bad location-in-mesh point, an empty mesh (`selected 0 cells`), a missing background mesh, a non-watertight STL, or a missing `jinja2`. The full log stays below for detail.
-
----
-
-## Case Directory Requirements
-
-```
-<case-root>/
-├── constant/           ← required; geometry in any subfolder
-│   └── <any-name>/
-│       └── *.stl / *.obj
-└── system/             ← required; generated dicts go here
-```
-
-GUI scans all of `constant/` recursively — subfolder name doesn't matter.
-
----
-
-## Typical Workflow
-
-```bash
-source /usr/lib/openfoam/openfoam2506/etc/bashrc
-python3 /mnt/c/OpenFOAM/src/app/openfoam_ui.py
-# Landing page → new/open project → choose utility → Continue →
-# Tab 1: select STL, set DX/DY/DZ, Generate Background Mesh
-# Tab 2: configure Sections 01-04, Generate + Run snappyHexMesh
-# Open ParaView from the header bar to inspect the mesh
-```
+A case needs `constant/` (geometry in any subfolder — scanned recursively) and `system/`. Generated dicts go in `system/`, mesh in `constant/polyMesh/`.
 
 ---
 
 ## CLI Tools
 
-Run inside WSL with the OpenFOAM environment sourced.
+Inside WSL, with OpenFOAM sourced (`of2506`):
 
-**generateBackgroundMesh.py** — STL bbox → `blockMeshDict` → `blockMesh`:
 ```bash
-python3 /mnt/c/OpenFOAM/src/app/generateBackgroundMesh.py \
-  -stlPath constant/triSurface/geometry.stl -dx 0.05 -dy 0.05 -dz 0.05
-```
+# STL bbox → blockMeshDict → blockMesh
+python3 src/app/generateBackgroundMesh.py -stlPath constant/triSurface/geo.stl -dx 0.05 -dy 0.05 -dz 0.05
 
-**generateSnappyHexMeshDict.py** — interactive prompts, also writes `fvSchemes`/`fvSolution` when layers are enabled:
-```bash
-python3 /mnt/c/OpenFOAM/src/app/generateSnappyHexMeshDict.py
+# Interactive snappyHexMeshDict builder
+python3 src/app/generateSnappyHexMeshDict.py
 ```
-Requires `system/controlDict` and `constant/` in the case root.
 
 ---
 
 ## Troubleshooting
 
-| Launcher error | Fix |
+| Problem | Fix |
 |---|---|
-| WSL Not Installed | Click **Install WSL** (needs admin approval); or `wsl --install` in admin PowerShell, restart |
-| No Linux Distribution Found | Click **Install Ubuntu** and follow the terminal; or `wsl --install -d Ubuntu` |
-| Distro is WSL1 | Click **Convert to WSL2**; or `wsl --set-version <distro> 2` |
-| Administrator Permission Needed | Follow the numbered steps in the dialog (**Copy Command** copies the exact command); ask IT if you lack admin rights |
-| Download Servers Unreachable | Corporate proxy/firewall — connect to an open network or ask IT to allow archive.ubuntu.com and dl.openfoam.com |
-| Low Disk Space | Free space on C: and inside WSL, then retry |
-| WSL Timed Out | Click **Try Again** — VM still booting |
-| WSL Unreachable | `wsl --status`, `wsl --shutdown`, retry; else `wsl --update` |
-| No Display Available | `wsl --update`, `wsl --shutdown`; needs Win10 21362+/Win11 |
-| Wrong OpenFOAM Version | Install 2506 alongside/instead of 2312 |
-| OpenFOAM Not Found | Install OpenFOAM 2506 in WSL |
-| Python 3 Not Found | `sudo apt-get install -y python3` |
-| Missing Python Packages | `sudo apt-get install -y python3-pyqt5 python3-numpy python3-jinja2`, or accept the setup prompt |
-| Package Installation Failed | Dialog names the failing component; check `%TEMP%\openfoam_ui_launcher.log` |
-| Application File Missing | Keep `.exe` inside `src\app\` with all `.py` files |
-| Launch Failed | Run manually in WSL and check Python errors |
-
-| General issue | Fix |
-|---|---|
-| `python3: command not found` | `sudo apt-get install python3` |
-| `No module named 'PyQt5'` | `sudo apt-get install python3-pyqt5` |
-| `blockMesh: command not found` | Source the OpenFOAM environment first |
-| Blank window | Win10: start VcXsrv/MobaXterm; Win11: should work out of the box |
-| `Not found: .../constant` | Directory needs both `constant/` and `system/` |
-| No files in Tab 2 table | No `.stl`/`.obj` under `constant/` |
+| Launcher error with a button | Click the button — most fixes are automatic |
+| Admin permission needed | Follow the numbered steps in the dialog (**Copy Command**); ask IT |
+| Download servers unreachable | Corporate proxy — allow archive.ubuntu.com + dl.openfoam.com or use open network |
+| WSL timed out / unreachable | **Try Again**; else `wsl --shutdown` then retry, or `wsl --update` |
+| Blank window | Win10: start an X server (VcXsrv); Win11: `wsl --update` |
+| `blockMesh: command not found` | Source OpenFOAM first (`of2506`) |
+| `No module named 'PyQt5'` (manual run) | `sudo apt-get install python3-pyqt5` |
+| No files in Tab 2 table | No `.stl`/`.obj` anywhere under `constant/` |
 | ParaView button does nothing | Install ParaView under `C:\Program Files\ParaView*\` |
-| `Could not parse stylesheet` | Harmless Qt5 warning, suppressed automatically |
-
-Install extra libraries: `sudo apt-get install python3-<name>` or `pip3 install <name> --break-system-packages`.
+| `Could not parse stylesheet` | Harmless Qt warning, auto-suppressed |
 
 ---
 
@@ -250,76 +141,59 @@ Install extra libraries: `sudo apt-get install python3-<name>` or `pip3 install 
 ```
 C:\OpenFOAM\
 ├── src\
-│   ├── app\                            # Installer payload — all end-user files
-│   │   ├── openfoam_ui.py              # PyQt5 GUI entry point
-│   │   ├── ui_shared.py                # Colour tokens, styles, shared helpers
-│   │   ├── ui_landing.py                # Landing page widget
-│   │   ├── ui_log_drawer.py             # Collapsible/resizable log drawer
-│   │   ├── ui_background_mesh.py        # Background Mesh tab
-│   │   ├── ui_snappy_hex.py             # SnappyHexMesh Dict tab
-│   │   ├── snappy_generator.py          # Tab 2 backend: dict render + run
-│   │   ├── defaults.json                # Default solver parameters
-│   │   ├── generateBackgroundMesh.py    # CLI (do not modify)
-│   │   ├── generateSnappyHexMeshDict.py # CLI (do not modify)
-│   │   ├── requirements.txt
-│   │   ├── openfoam_ui_launcher.py      # Launcher source
-│   │   ├── OpenFOAM_UI.exe              # Launcher binary
-│   │   ├── icons\
-│   │   └── templates\                   # OpenFOAM dict templates
-│   └── deploy\                          # Build tools — not shipped
-│       ├── generate_icon.py
-│       ├── openfoam_ui_launcher.spec
-│       ├── version_info.txt
-│       ├── build.bat                    # One-command build: EXE + installer
-│       └── installer.iss                # Inno Setup script
-├── Demo-01\, Demo-02\                   # Demo OpenFOAM cases (Demo-02: power-electronics STLs)
-├── Archived\                            # Old session trees (ANR-*) + Vijay's reference packages (VIJ-*)
-├── agents\                              # Scoped subagent definitions
-├── documentation\
-└── CLAUDE.md                            # AI assistant guidance
+│   ├── app\        # Installer payload — everything the user gets
+│   │   ├── openfoam_ui.py              # GUI entry (QMainWindow shell)
+│   │   ├── ui_shared.py                # Tokens, custom widgets, popups, banners
+│   │   ├── ui_landing.py               # Landing page
+│   │   ├── ui_log_drawer.py            # Log drawer
+│   │   ├── ui_background_mesh.py       # Tab 1
+│   │   ├── ui_snappy_hex.py            # Tab 2
+│   │   ├── snappy_generator.py         # Tab 2 backend (Jinja2 render + run)
+│   │   ├── generateBackgroundMesh.py   # CLI — do not modify
+│   │   ├── generateSnappyHexMeshDict.py# CLI — do not modify
+│   │   ├── openfoam_ui_launcher.py     # Launcher source (stdlib only)
+│   │   ├── OpenFOAM_UI.exe + _internal\  # Launcher binary (one-dir build)
+│   │   ├── defaults.json, requirements.txt, icons\, templates\
+│   └── deploy\     # Build tools (not shipped): build.bat, installer.iss,
+│                   # openfoam_ui_launcher.spec, version_info.txt, generate_icon.py
+├── Demo-01\, Demo-02\   # Sample cases (Demo-02: power-electronics STLs)
+├── Archived\            # Old session trees (ANR-*) + reference packages (VIJ-*)
+├── agents\              # Scoped subagent definitions
+└── CLAUDE.md            # AI assistant guidance (full technical detail)
 ```
 
-## Architecture Overview
+## Architecture
 
-**Windows launcher** (`openfoam_ui_launcher.py` → `OpenFOAM_UI.exe`) — stdlib only, no bundled PyQt5/OpenFOAM. Shows splash, runs six pre-flight steps, then `python3 openfoam_ui.py` inside WSL and closes when the GUI is ready. Setup gate writes an apt-only script for missing packages. All commands target the detected distro via `wsl -d <name>`; logs to `%TEMP%\openfoam_ui_launcher.log`.
-
-**Python application (WSL)**:
-- `openfoam_ui.py` — `QMainWindow` shell: tabs, header, LogDrawer, ParaView launcher.
-- `ui_shared.py` — colour/style tokens, custom widgets (`PlusMinusSpinBox`, `ChevronComboBox`), `MessageBanner` (shared red-error / green-success strip), and `scan_log_for_fix()` (maps raw OpenFOAM log signatures → plain fixes).
-- `ui_landing.py` — new/open project page; recents in `~/.openfoam_ui_recents.json`; live name-sanitize, `/mnt` path conversion, From-STL template, gated footer **Open →**.
-- `ui_background_mesh.py` — Tab 1; `_BgMeshWorker(QThread)` runs `surfaceCheck` → `blockMesh`. Emits `request_snappy` from its success banner to hand off to Tab 2.
-- `ui_snappy_hex.py` — Tab 2; `_SnappyWorker(QThread)` calls `snappy_generator.generate_and_run()`.
-- `snappy_generator.py` — renders `snappyHexMeshDict` from `templates/snappyHexMeshDict.template` (Jinja2), records inputs to `snappy_inputs.json`, streams `snappyHexMesh -overwrite`. Inner solids become faceZone + cellZone so cells are kept and named; keep-point nudged by 1e-6 off cell faces. All subprocess calls use `cwd=case_dir`, never `os.chdir()`.
+- **Launcher** (`OpenFOAM_UI.exe`): Windows-side, stdlib only. Splash → pre-flight checks (self-healing) → runs `python3 openfoam_ui.py` inside WSL. Nothing else is bundled — the app itself runs live from `.py` files in WSL.
+- **GUI**: `openfoam_ui.py` shell; workers (`QThread`) run OpenFOAM commands; `snappy_generator.py` renders `snappyHexMeshDict` from a Jinja2 template and runs `snappyHexMesh -overwrite`. Inner solids become faceZone + cellZone so their cells are kept and named. All subprocesses use `cwd=case_dir`, never `os.chdir()`.
 
 See `CLAUDE.md` for full detail.
 
-## Building a release
-
-One command builds everything (~40 s):
+## Building a Release
 
 ```bat
 cd C:\OpenFOAM\src\deploy
 build.bat
 ```
 
-Prompts for a version number (Enter reuses the current one, read from `version_info.txt`), patches `version_info.txt` + the splash label, runs PyInstaller, copies the result to `..\app\OpenFOAM_UI.exe`, then compiles the one-file installer `dist\OpenFOAM_UI_Setup_<version>.exe` (skipped with a warning if Inno Setup 6 is missing — `winget install JRSoftware.InnoSetup`). Requires Python 3.9+ on Windows; PyInstaller installs automatically if missing.
+One command (~40 s): prompts a version (Enter reuses current), patches `version_info.txt` + splash label, runs PyInstaller (one-dir), copies exe + `_internal\` to `app\`, compiles `dist\OpenFOAM_UI_Setup_<version>.exe` via Inno Setup 6 (`winget install JRSoftware.InnoSetup` if missing). Always runs the full chain — the splash version is baked into the EXE.
 
-It always runs the full chain — the splash version label is baked into the EXE, so a partial build could ship an installer whose version disagrees with the splash. During development, `.py` edits take effect on next launch with no rebuild; building is only for cutting a distributable Setup EXE.
+During development, `.py` edits (except the launcher) take effect on next launch — no rebuild. Rebuild only to cut a distributable Setup EXE.
 
-## Deployment Checklist
-
-**Before building:** changes committed on `main`; GUI tested end-to-end (landing → Tab 1 → Tab 2 → ParaView); `defaults.json`/templates correct; `requirements.txt` matches imports; `deploy\icons\openfoam_ui.ico` present.
-
-**Building:** run `build.bat` on a clean machine; confirm `dist\OpenFOAM_UI.exe` built with no errors, was copied to `app\`, and `dist\OpenFOAM_UI_Setup_<version>.exe` was produced.
-
-**Packaging:** distribute `deploy\dist\OpenFOAM_UI_Setup_<version>.exe` — that single file is the whole product. Smoke-test it: run the installer, check the desktop shortcut launches, `Documents\OpenFOAM-Projects` has Demo-01/Demo-02, and the landing page's Location defaults there. (ZIP of `src\app\` remains a manual fallback; exclude `deploy\`, `__pycache__\`, `.pyc`.)
-
-**What's bundled in the EXE:** only `openfoam_ui_launcher.py` + stdlib/tkinter. Everything else (`openfoam_ui.py`, `ui_*.py`, `snappy_generator.py`, PyQt5/numpy/jinja2, `defaults.json`) runs live from `.py` files in WSL.
+**Ship**: distribute the single `dist\OpenFOAM_UI_Setup_<version>.exe`. Smoke-test: install, shortcut launches, `Documents\OpenFOAM-Projects` has Demo-01/02, landing Location defaults there. ZIP of `src\app\` is the manual fallback.
 
 ## Platform Notes
 
-- `C:\OpenFOAM` ↔ WSL `/mnt/c/OpenFOAM`
-- Target OpenFOAM: **2506** (also 2312). The GUI sources whichever install it was launched under (`$WM_PROJECT_DIR`), else the newest under `/usr/lib/openfoam/` — no hardcoded version
-- ParaView auto-detected at `/mnt/c/Program Files/ParaView*/bin/paraview.exe` (newest wins), path converted via `wslpath -w`
-- GUI window 1100×760, centered; needs WSLg or X server
-- `qInstallMessageHandler` in `openfoam_ui.py` silences harmless Qt5 stylesheet warnings
+- `C:\OpenFOAM` ↔ WSL `/mnt/c/OpenFOAM`.
+- OpenFOAM target **2506** (2312 also works) — nothing hardcoded; the newest found install is used.
+- ParaView auto-detected at `C:\Program Files\ParaView*\bin\paraview.exe` (newest wins).
+- GUI 1100×760; needs WSLg (Win11) or an X server (Win10).
+
+---
+
+# License & Community
+
+- **License**: [GPL-3.0](LICENSE) — the same license OpenFOAM itself uses (both variants). Free to use, modify, and share; derived works must stay GPL.
+- **Contributing**: setup, rules, and PR flow in [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Security**: found a vulnerability? See [SECURITY.md](SECURITY.md) — report privately, not via public issues.
+- **Conduct**: contributors follow the [Code of Conduct](CODE_OF_CONDUCT.md) (Contributor Covenant 2.1).

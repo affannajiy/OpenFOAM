@@ -26,7 +26,7 @@ from ui_shared import (
     BORDER, BORDER_SOFT,
     TEXT_PRIMARY, TEXT_MUTED,
     STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_BTN_SMALL_RED, STYLE_BTN_GHOST,
-    STYLE_BTN_PRIMARY,
+    STYLE_BTN_PRIMARY, STYLE_TOOLTIP,
     find_paraview_exe, build_card, ChevronComboBox, to_wsl_path,
     detect_openfoam_version, detect_ubuntu_version,
     detect_python_version, detect_paraview_version,
@@ -624,7 +624,7 @@ class LandingWidget(QWidget):
                 font-size: 16px;
             }}
             QPushButton:hover {{ color: {KS_RED}; }}
-        """)
+        """ + STYLE_TOOLTIP)
         del_btn.clicked.connect(lambda _checked, p=path: self._on_recent_delete(p))
 
         row_h.addLayout(left, 1)
@@ -812,7 +812,7 @@ class LandingWidget(QWidget):
                     border-radius: 6px;
                     background: {KS_RED_LT};
                 }}
-            """)
+            """ + STYLE_TOOLTIP)
         else:
             card.setStyleSheet(f"""
                 QFrame#{name} {{
@@ -823,7 +823,7 @@ class LandingWidget(QWidget):
                 QFrame#{name}:hover {{
                     border: 1px solid #D1D5DB;
                 }}
-            """)
+            """ + STYLE_TOOLTIP)
 
     def _select_util(self, uid: int):
         """Mark one utility as chosen and restyle every card to match."""
@@ -885,10 +885,12 @@ class LandingWidget(QWidget):
             f"QPushButton {{ background: {BG_CARD}; border: 1px solid {BORDER};"
             f" border-radius: 4px; color: {TEXT_PRIMARY};"
             f" font-family: 'Segoe UI'; font-size: 12px; font-weight: 600; }}"
+            + STYLE_TOOLTIP
         )
         inactive_ss = (
             f"QPushButton {{ background: transparent; border: none;"
             f" color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 12px; }}"
+            + STYLE_TOOLTIP
         )
         if self._mode == "new":
             self._btn_new.setStyleSheet(active_ss)
