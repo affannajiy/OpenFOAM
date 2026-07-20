@@ -27,7 +27,7 @@ from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve,
 from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
 
 from ui_shared import (LOG_BG, LOG_FG, LOG_ERROR, LOG_WARN, LOG_INFO, LOG_CMD,
-                        TEXT_MUTED, BORDER, STYLE_TOOLTIP)
+                        TEXT_MUTED, BORDER, STYLE_TOOLTIP, FONT_UI, FONT_MONO)
 
 COLLAPSED_H = 36
 EXPANDED_H  = 650
@@ -158,20 +158,20 @@ class LogDrawer(QWidget):
 
         log_lbl = QLabel("OUTPUT LOG")
         log_lbl.setStyleSheet(
-            f"color: {LOG_FG}; font-family: Consolas; font-size: 12px;"
+            f"color: {LOG_FG}; font-family: {FONT_MONO}; font-size: 12px;"
             " font-weight: bold; border: none; background: transparent;")
         hdr_row.addWidget(log_lbl)
 
         self._step_lbl = QLabel("")
         self._step_lbl.setStyleSheet(
-            "color: #F59E0B; font-family: Consolas; font-size: 12px;"
+            f"color: #F59E0B; font-family: {FONT_MONO}; font-size: 12px;"
             " border: none; background: transparent;")
         self._step_lbl.setVisible(False)
         hdr_row.addWidget(self._step_lbl)
 
         self._count_lbl = QLabel("0 lines")
         self._count_lbl.setStyleSheet(
-            f"color: {LOG_CMD}; font-family: Consolas; font-size: 12px;"
+            f"color: {LOG_CMD}; font-family: {FONT_MONO}; font-size: 12px;"
             " border: none; background: transparent;")
         hdr_row.addWidget(self._count_lbl)
 
@@ -185,7 +185,7 @@ class LogDrawer(QWidget):
                 border-radius: 3px;
                 padding: 2px 8px;
                 font-size: 11px;
-                font-family: 'Segoe UI';
+                font-family: {FONT_UI};
             }}
             QPushButton:hover {{ color: {LOG_FG}; border-color: {LOG_CMD}; }}
         """ + STYLE_TOOLTIP
@@ -230,7 +230,7 @@ class LogDrawer(QWidget):
                 color: {LOG_FG};
                 border: none;
                 border-top: 1px solid #2D3748;
-                font-family: Consolas;
+                font-family: {FONT_MONO};
                 font-size: 13px;
                 padding: 8px;
             }}

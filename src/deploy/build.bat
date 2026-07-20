@@ -48,12 +48,18 @@ for /f "tokens=1,2,3 delims=." %%A in ("%VERSION%") do (
 )
 set VERTUPLE=%V1%, %V2%, %V3%, 0
 
-> "%TEMP%\patch_version.ps1" echo $f = Get-Content 'version_info.txt' -Raw
+:: Read/write via [IO.File] -- Get-Content -Raw keeps the file's trailing
+:: newline and Set-Content then appended ANOTHER, so every build grew the file
+:: by one blank line. TrimEnd() (no added newline) matches the committed file
+:: exactly, so a build with an unchanged version leaves no git diff here.
+> "%TEMP%\patch_version.ps1" echo $enc = New-Object System.Text.UTF8Encoding($false)
+>> "%TEMP%\patch_version.ps1" echo $f = [IO.File]::ReadAllText('version_info.txt', $enc)
 >> "%TEMP%\patch_version.ps1" echo $f = $f -replace 'filevers=\([^)]+\)', 'filevers=(%VERTUPLE%)'
 >> "%TEMP%\patch_version.ps1" echo $f = $f -replace 'prodvers=\([^)]+\)', 'prodvers=(%VERTUPLE%)'
 >> "%TEMP%\patch_version.ps1" echo $f = $f -replace "'FileVersion',\s*'[^']+'" , "'FileVersion', '%VERSION%'"
 >> "%TEMP%\patch_version.ps1" echo $f = $f -replace "'ProductVersion',\s*'[^']+'" , "'ProductVersion', '%VERSION%'"
->> "%TEMP%\patch_version.ps1" echo Set-Content 'version_info.txt' $f
+>> "%TEMP%\patch_version.ps1" echo $f = $f.TrimEnd()
+>> "%TEMP%\patch_version.ps1" echo [IO.File]::WriteAllText('version_info.txt', $f, $enc)
 powershell -ExecutionPolicy Bypass -File "%TEMP%\patch_version.ps1"
 if errorlevel 1 (
     echo ERROR: Failed to update version_info.txt.

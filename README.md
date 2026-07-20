@@ -85,7 +85,7 @@ Carves your geometry out of the background mesh.
 
 | Section | What you set |
 |---|---|
-| **01 Geometry** | Table of every `.stl`/`.obj` under `constant/` + standard shapes. Per file: Use (untick to exclude), Surface Type, refinement Min/Max, Vol Dir + level. Smart defaults: biggest file → Boundary, rest → FaceZone+CellZone. Refresh keeps your settings |
+| **01 Geometry** | Table of every `.stl`/`.obj` under `constant/` + standard shapes. Per file: Use (untick to exclude), Surface Type, refinement Min/Max, Vol Dir + level. Smart defaults: biggest file → Boundary, rest → FaceZone+CellZone. **The table refreshes itself** when you add or remove files (a manual **Refresh file list** button is there too); your existing settings are kept |
 | **02 Castellation** | Unit, nCellsBetweenLevels, location-in-mesh point. **Suggest point** picks one for you — verify it's in fluid, not inside a solid |
 | **03 Snap** | Automatic (implicit feature snapping, nothing to configure) |
 | **04 Layers** | Optional boundary layers, per-patch counts |
@@ -96,6 +96,10 @@ Carves your geometry out of the background mesh.
 ### Log & Errors
 
 Bottom drawer: colour-coded log, drag to resize, chevron to collapse. During snappy runs the header shows **Step X/3** (Castellating → Snapping → Adding layers). On failure, a red banner translates the raw OpenFOAM error into a plain cause and fix (bad location point, empty mesh, missing background mesh, non-watertight STL, …); the full log stays below.
+
+### Closing While Meshing
+
+If you try to close the window while a mesh is still running, the app asks first — choose **Yes** to stop the run and close, or **No** to keep it running. Nothing is lost by accident.
 
 ### Case Folder Rules
 

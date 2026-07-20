@@ -54,6 +54,22 @@ LOG_WARN      = "#FCD34D"   # lines tagged "warn"
 LOG_INFO      = "#93C5FD"   # lines tagged "info"
 LOG_CMD       = "#64748B"   # lines tagged "cmd" (the command that was run)
 
+# ── 1b. Font tokens ───────────────────────────────────────────────────────────
+# The GUI renders under WSL, so Windows font names never resolve: fontconfig
+# silently substituted DejaVu for both 'Segoe UI' and Consolas.  Single family
+# names are used deliberately — fontconfig always resolves them to *something*,
+# whereas Qt5's QSS parser is unreliable with comma-separated fallback lists.
+#
+# FONT_UI resolves to Nimbus Sans (metrically Helvetica-compatible) when the
+# fonts-urw-base35 package is present — the launcher's apt setup installs it —
+# and degrades to DejaVu Sans when it is not.
+#
+# FONT_MONO stays a separate role on purpose: the log drawer and the coordinate
+# / path / value fields rely on fixed-width columns to stay aligned with raw
+# snappyHexMesh output.  Never collapse it into FONT_UI.
+FONT_UI       = "Helvetica"
+FONT_MONO     = "monospace"
+
 # ── OpenFOAM constants ────────────────────────────────────────────────────────
 # Full path to the OpenFOAM bashrc that must be sourced before any OF command.
 # Every subprocess call prepends "source OF_BASHRC &&" because the OF environment
@@ -99,7 +115,7 @@ STYLE_TOOLTIP = f"""
         border-radius: 6px;
         padding: 6px 8px;
         font-size: 12px;
-        font-family: Consolas, monospace;
+        font-family: {FONT_MONO};
     }}
 """
 
@@ -110,7 +126,7 @@ STYLE_BTN_PRIMARY = f"""
         border: none;
         border-radius: 4px;
         padding: 10px 20px;
-        font-family: 'Segoe UI';
+        font-family: {FONT_UI};
         font-size: 14px;
         font-weight: 600;
     }}
@@ -125,7 +141,7 @@ STYLE_BTN_GHOST = f"""
         border: 1px solid {BORDER};
         border-radius: 4px;
         padding: 9px 18px;
-        font-family: 'Segoe UI';
+        font-family: {FONT_UI};
         font-size: 14px;
     }}
     QPushButton:hover    {{ border-color: {TEXT_MUTED}; }}
@@ -139,7 +155,7 @@ STYLE_BTN_SMALL_GHOST = f"""
         border: 1px solid {BORDER};
         border-radius: 3px;
         padding: 6px 13px;
-        font-family: 'Segoe UI';
+        font-family: {FONT_UI};
         font-size: 13px;
     }}
     QPushButton:hover {{ border-color: {TEXT_MUTED}; color: {TEXT_PRIMARY}; }}
@@ -152,7 +168,7 @@ STYLE_BTN_SMALL_RED = f"""
         border: none;
         border-radius: 3px;
         padding: 6px 13px;
-        font-family: 'Segoe UI';
+        font-family: {FONT_UI};
         font-size: 13px;
         font-weight: 600;
     }}
@@ -167,7 +183,7 @@ STYLE_ENTRY = f"""
         border: 1px solid {BORDER};
         border-radius: 4px;
         padding: 8px 10px;
-        font-family: 'Segoe UI';
+        font-family: {FONT_UI};
         font-size: 14px;
         min-height: 28px;
     }}
@@ -182,7 +198,7 @@ STYLE_ENTRY_MONO = f"""
         border: 1px solid {BORDER};
         border-radius: 4px;
         padding: 7px 10px;
-        font-family: Consolas;
+        font-family: {FONT_MONO};
         font-size: 12px;
     }}
     QLineEdit:focus {{ border-color: {KS_RED}; }}
@@ -195,7 +211,7 @@ STYLE_SPINBOX = f"""
         border: 1px solid {BORDER};
         border-radius: 4px;
         padding: 5px 24px 5px 8px;
-        font-family: 'Segoe UI';
+        font-family: {FONT_UI};
         font-size: 14px;
         min-height: 28px;
     }}
@@ -251,7 +267,7 @@ _CHECK_PNG = os.path.join(
 STYLE_CHECKBOX = f"""
     QCheckBox {{
         color: {TEXT_PRIMARY};
-        font-family: 'Segoe UI';
+        font-family: {FONT_UI};
         font-size: 14px;
         background: transparent;
         spacing: 8px;
@@ -284,7 +300,7 @@ STYLE_COMBO = f"""
         border: 1px solid {BORDER};
         border-radius: 4px;
         padding: 5px 8px;
-        font-family: 'Segoe UI';
+        font-family: {FONT_UI};
         font-size: 14px;
         min-height: 28px;
     }}
@@ -383,7 +399,7 @@ def _pm_btn_ss(border_radius: str) -> str:
     """Return the QSS for a PlusMinusSpinBox − or + button with the given border-radius."""
     return (
         f"QPushButton {{ background: {BG_SUBTLE}; color: {TEXT_PRIMARY}; border: none;"
-        f" font-family: 'Segoe UI'; font-size: 15px; font-weight: 700; padding: 0px;"
+        f" font-family: {FONT_UI}; font-size: 15px; font-weight: 700; padding: 0px;"
         f" border-radius: {border_radius}; }}"
         f"QPushButton:hover {{ background: {BORDER}; }}"
         f"QPushButton:pressed {{ background: {KS_RED}; color: white; }}"
@@ -463,7 +479,7 @@ class PlusMinusSpinBox(QWidget):
         self._edit = QLineEdit(self._fmt(0))
         self._edit.setAlignment(Qt.AlignCenter)
         self._edit.setStyleSheet(
-            f"QLineEdit {{ color: {TEXT_PRIMARY}; font-family: 'Segoe UI';"
+            f"QLineEdit {{ color: {TEXT_PRIMARY}; font-family: {FONT_UI};"
             f" font-size: 13px; background: {BG_CARD}; border: none; padding: 0px; }}"
             f"QLineEdit:disabled {{ color: {TEXT_MUTED}; background: {BG_SUBTLE}; }}"
             + STYLE_TOOLTIP
@@ -570,7 +586,7 @@ def make_info_icon(tip_text: str, bg: str = None):
     # rendered as a tofu box.  An ASCII 'i' always renders.
     icon = QLabel("i")
     icon.setStyleSheet(
-        f"QLabel {{ color: {KS_RED}; font-family: 'Segoe UI'; font-size: 11px;"
+        f"QLabel {{ color: {KS_RED}; font-family: {FONT_UI}; font-size: 11px;"
         f" font-weight: 700; font-style: italic; background: {bg};"
         f" border: 1.4px solid {KS_RED}; border-radius: 8px; }}"
         + STYLE_TOOLTIP)
@@ -631,13 +647,13 @@ def build_card(section_label: str, title: str, tip: str = None):
 
     num_lbl = QLabel(section_label)
     num_lbl.setStyleSheet(
-        f"color: {KS_RED}; font-family: Consolas; font-size: 12px;"
+        f"color: {KS_RED}; font-family: {FONT_MONO}; font-size: 12px;"
         " font-weight: bold; background: transparent;"
     )
 
     ttl_lbl = QLabel(title)
     ttl_lbl.setStyleSheet(
-        f"color: {TEXT_PRIMARY}; font-family: 'Segoe UI'; font-size: 15px;"
+        f"color: {TEXT_PRIMARY}; font-family: {FONT_UI}; font-size: 15px;"
         " font-weight: 600; background: transparent;"
     )
 

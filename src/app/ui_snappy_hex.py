@@ -35,11 +35,11 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFrame,
     QCheckBox, QSizePolicy,
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent, QFileSystemWatcher
 
 from ui_shared import (
     KS_RED, BG_APP, BG_CARD, BG_SUBTLE, BORDER, BORDER_SOFT,
-    TEXT_PRIMARY, TEXT_MUTED, TEXT_WHITE,
+    TEXT_PRIMARY, TEXT_MUTED, TEXT_WHITE, FONT_UI, FONT_MONO,
     STYLE_BTN_PRIMARY, STYLE_BTN_SMALL_GHOST, STYLE_BTN_SMALL_RED,
     STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_CHECKBOX, STYLE_TOOLTIP,
     build_card, to_wsl_path, PlusMinusSpinBox, ChevronComboBox, get_stl_zone_names,
@@ -147,6 +147,18 @@ class SnappyHexWidget(QWidget):
         self._msg_banner            = None
         self._run_log: list         = []   # collected output for error scanning
 
+        # Auto-rescan: a QFileSystemWatcher on constant/ (+ subdirs) fires when
+        # the user drops in / removes / edits an STL from Explorer, so the file
+        # table refreshes itself. Bursts of change events are debounced through
+        # a single-shot timer so a multi-file paste triggers one rebuild.
+        self._fs_watcher = QFileSystemWatcher(self)
+        self._fs_watcher.directoryChanged.connect(self._on_constant_changed)
+        self._fs_watcher.fileChanged.connect(self._on_constant_changed)
+        self._watch_debounce = QTimer(self)
+        self._watch_debounce.setSingleShot(True)
+        self._watch_debounce.setInterval(600)
+        self._watch_debounce.timeout.connect(self._auto_refresh_files)
+
         self.setStyleSheet(f"background: {BG_APP};")
         self._build()
 
@@ -170,7 +182,7 @@ class SnappyHexWidget(QWidget):
         cwd_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 14px; background: transparent;")
         self._cwd_lbl = QLabel(self._cwd)
         self._cwd_lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 11px; background: transparent;")
+            f"color: {TEXT_MUTED}; font-family: {FONT_MONO}; font-size: 11px; background: transparent;")
         self._cwd_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         change_btn = QPushButton("Change…")
         change_btn.setStyleSheet(STYLE_BTN_SMALL_RED)
@@ -220,7 +232,7 @@ class SnappyHexWidget(QWidget):
         """Small grey letter-spaced caption used above field groups."""
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 11px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 11px;"
             " font-weight: 600; letter-spacing: 0.4px; background: transparent;")
         return lbl
 
@@ -367,7 +379,8 @@ class SnappyHexWidget(QWidget):
         refresh_btn.setStyleSheet(STYLE_BTN_SMALL_GHOST)
         refresh_btn.setToolTip(
             "Re-scan constant/ for new STL/OBJ files.\n"
-            "Your existing row settings are kept.")
+            "The list also refreshes on its own when you add or\n"
+            "remove files. Your existing row settings are kept.")
         refresh_btn.clicked.connect(self._refresh_file_list)
         body.addWidget(refresh_btn, alignment=Qt.AlignLeft)
 
@@ -588,7 +601,7 @@ class SnappyHexWidget(QWidget):
 
             name_lbl = QLabel(fname)
             name_lbl.setStyleSheet(
-                f"color: {TEXT_PRIMARY}; font-family: Consolas; font-size: 13px;"
+                f"color: {TEXT_PRIMARY}; font-family: {FONT_MONO}; font-size: 13px;"
                 " background: transparent;")
             name_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             row_layout.addWidget(name_lbl)
@@ -1150,7 +1163,7 @@ class SnappyHexWidget(QWidget):
             row = QHBoxLayout()
             lbl = QLabel(patch)
             lbl.setStyleSheet(
-                f"color: {TEXT_PRIMARY}; font-family: Consolas; font-size: 13px;"
+                f"color: {TEXT_PRIMARY}; font-family: {FONT_MONO}; font-size: 13px;"
                 " background: transparent;")
             lbl.setFixedWidth(260)
             sp = PlusMinusSpinBox()
@@ -1201,7 +1214,7 @@ class SnappyHexWidget(QWidget):
         body.addWidget(self._label_small("PRE-FLIGHT CHECK"))
         self._preflight_lbl = QLabel("")
         self._preflight_lbl.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-family: Consolas; font-size: 12px;"
+            f"color: {TEXT_PRIMARY}; font-family: {FONT_MONO}; font-size: 12px;"
             " background: transparent;")
         self._preflight_lbl.setWordWrap(True)
         body.addWidget(self._preflight_lbl)
@@ -1350,6 +1363,7 @@ class SnappyHexWidget(QWidget):
         self._refresh_file_list()
         self._update_dict_banner()
         self._update_time_dirs()
+        self._rewatch_constant()
 
     def _change_cwd(self):
         """Change… button on the CWD bar: switch to another case folder,
@@ -1371,6 +1385,36 @@ class SnappyHexWidget(QWidget):
         self._refresh_file_list()
         self._update_dict_banner()
         self._update_time_dirs()
+        self._rewatch_constant()
+
+    # ── Auto file-list refresh ─────────────────────────────────────────────────────
+
+    def _rewatch_constant(self):
+        """Point the file-system watcher at the current case's constant/ tree.
+        QFileSystemWatcher is not recursive, so every subdirectory is added
+        explicitly; a new subfolder is picked up when its parent fires."""
+        old = self._fs_watcher.directories() + self._fs_watcher.files()
+        if old:
+            self._fs_watcher.removePaths(old)
+        constant = os.path.join(self._cwd, "constant")
+        if not os.path.isdir(constant):
+            return
+        dirs = [constant]
+        for root, subdirs, _files in os.walk(constant):
+            dirs.extend(os.path.join(root, d) for d in subdirs)
+        self._fs_watcher.addPaths(dirs)
+
+    def _on_constant_changed(self, _path: str):
+        """A watched path changed — (re)start the debounce timer and make sure
+        any newly created subfolders are watched too."""
+        self._rewatch_constant()
+        self._watch_debounce.start()
+
+    def _auto_refresh_files(self):
+        """Debounced rebuild after file changes. Preserves the user's per-row
+        settings; new files get smart defaults, removed files drop out — no
+        popup, matching the manual Refresh button."""
+        self._refresh_file_list(_preserve=True)
 
     # ── LocationInMesh auto-suggest ────────────────────────────────────────────────
 
@@ -1604,6 +1648,13 @@ class SnappyHexWidget(QWidget):
         worker.finished_signal.connect(self._on_run_done)
         worker.start()
         self._run_worker = worker
+
+    def is_meshing(self) -> bool:
+        """True while a snappyHexMesh worker is running (used by the main
+        window's close guard so the user cannot quit mid-run without
+        confirming)."""
+        worker = getattr(self, "_run_worker", None)
+        return bool(worker and worker.isRunning())
 
     def cancel_run(self):
         """Stop a running snappyHexMesh worker (Cancel button / Esc shortcut).

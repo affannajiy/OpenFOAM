@@ -14,7 +14,7 @@ import shutil
 from typing import Optional
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QScrollArea, QSizePolicy,
     QStackedWidget,
 )
@@ -24,7 +24,7 @@ from ui_shared import (
     KS_RED, KS_RED_DARK, KS_RED_LT, KS_BLACK,
     BG_APP, BG_CARD, BG_SUBTLE,
     BORDER, BORDER_SOFT,
-    TEXT_PRIMARY, TEXT_MUTED,
+    TEXT_PRIMARY, TEXT_MUTED, FONT_UI, FONT_MONO,
     STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_BTN_SMALL_RED, STYLE_BTN_GHOST,
     STYLE_BTN_PRIMARY, STYLE_TOOLTIP,
     find_paraview_exe, build_card, ChevronComboBox, to_wsl_path,
@@ -252,13 +252,13 @@ class LandingWidget(QWidget):
 
         eyebrow = QLabel("W E L C O M E")
         eyebrow.setStyleSheet(
-            f"color: {KS_RED}; font-family: Consolas; font-size: 9px;"
+            f"color: {KS_RED}; font-family: {FONT_MONO}; font-size: 9px;"
             " font-weight: bold; background: transparent;")
         left.addWidget(eyebrow)
 
         title = QLabel("Set Up a Meshing Case")
         title.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-family: 'Segoe UI'; font-size: 24px;"
+            f"color: {TEXT_PRIMARY}; font-family: {FONT_UI}; font-size: 24px;"
             " font-weight: 300; background: transparent;")
         left.addWidget(title)
 
@@ -266,7 +266,7 @@ class LandingWidget(QWidget):
             "Pick a project, choose a utility, then generate. "
             "All commands run inside WSL with the OpenFOAM environment sourced.")
         subtitle.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 12px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 12px;"
             " background: transparent;")
         subtitle.setWordWrap(True)
         left.addWidget(subtitle)
@@ -276,7 +276,10 @@ class LandingWidget(QWidget):
         # Right — environment metadata card
         meta = QFrame()
         meta.setObjectName("landing_meta")
-        meta.setFixedWidth(260)
+        # Max, not fixed: at 260 px it refused to give width back to the title
+        # block, so a narrow window squeezed the text instead of the card.
+        meta.setMaximumWidth(260)
+        meta.setMinimumWidth(170)
         meta.setStyleSheet(f"""
             QFrame#landing_meta {{
                 background: {BG_CARD};
@@ -303,11 +306,11 @@ class LandingWidget(QWidget):
             r = QHBoxLayout()
             k_lbl = QLabel(key)
             k_lbl.setStyleSheet(
-                f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 11px;"
+                f"color: {TEXT_MUTED}; font-family: {FONT_MONO}; font-size: 11px;"
                 " background: transparent;")
             v_lbl = QLabel(val)
             v_lbl.setStyleSheet(
-                f"color: {TEXT_PRIMARY}; font-family: Consolas; font-size: 11px;"
+                f"color: {TEXT_PRIMARY}; font-family: {FONT_MONO}; font-size: 11px;"
                 " background: transparent;")
             v_lbl.setAlignment(Qt.AlignRight)
             r.addWidget(k_lbl)
@@ -316,6 +319,7 @@ class LandingWidget(QWidget):
             meta_v.addLayout(r)
 
         row.addWidget(meta)
+        self._hero_row = row     # flipped to vertical when narrow (see resizeEvent)
         content.addWidget(frame)
 
     # ── Two-column layout ─────────────────────────────────────────────────────
@@ -336,7 +340,28 @@ class LandingWidget(QWidget):
 
         cols.addWidget(proj_card)
         cols.addWidget(util_card)
+        self._cols_row = cols    # flipped to vertical when narrow (see resizeEvent)
         content.addLayout(cols)
+
+    # ── Responsive behaviour ──────────────────────────────────────────────────
+
+    #: Below this content width the two cards stop fitting side by side.
+    _STACK_BREAKPOINT = 900
+
+    def resizeEvent(self, event):
+        """Stack the hero and the 01/02 cards into a single column on narrow
+        windows. Both rows are QBoxLayouts, so flipping direction re-flows them
+        without rebuilding any widgets — the cards keep their state and the
+        layout stays cheap enough to run during a live drag-resize."""
+        super().resizeEvent(event)
+        stacked = self.width() < self._STACK_BREAKPOINT
+        if stacked == getattr(self, "_is_stacked", None):
+            return          # only touch the layout when the mode actually flips
+        self._is_stacked = stacked
+        direction = (QBoxLayout.TopToBottom if stacked
+                     else QBoxLayout.LeftToRight)
+        self._hero_row.setDirection(direction)
+        self._cols_row.setDirection(direction)
 
     # ── Project card ──────────────────────────────────────────────────────────
 
@@ -456,7 +481,7 @@ class LandingWidget(QWidget):
         stl_v.addLayout(stl_row)
         self._stl_files_lbl = QLabel("No files chosen")
         self._stl_files_lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 10px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_MONO}; font-size: 10px;"
             " background: transparent;")
         self._stl_files_lbl.setWordWrap(True)
         stl_v.addWidget(self._stl_files_lbl)
@@ -477,7 +502,7 @@ class LandingWidget(QWidget):
         pf_v.setContentsMargins(14, 12, 14, 12)
         self._preview_lbl = QLabel()
         self._preview_lbl.setStyleSheet(
-            "color: #4B5563; font-family: Consolas; font-size: 11px;"
+            f"color: #4B5563; font-family: {FONT_MONO}; font-size: 11px;"
             " line-height: 150%; background: transparent;")
         self._preview_lbl.setTextFormat(Qt.PlainText)
         pf_v.addWidget(self._preview_lbl)
@@ -497,7 +522,7 @@ class LandingWidget(QWidget):
 
         self._open_path_lbl = QLabel("No folder selected")
         self._open_path_lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 10px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_MONO}; font-size: 10px;"
             " background: transparent;")
         vbox.addWidget(self._open_path_lbl)
 
@@ -525,7 +550,11 @@ class LandingWidget(QWidget):
             QScrollBar::add-line:vertical,
             QScrollBar::sub-line:vertical {{ height: 0; }}
         """)
-        recents_scroll.setMinimumHeight(168)
+        # Floor of one row (56 px) + padding rather than three: at 168 px this
+        # alone claimed most of a 360p window's content height.  It still
+        # expands to ~168 px whenever there is room.
+        recents_scroll.setMinimumHeight(72)
+        recents_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self._recents_inner = QWidget()
         self._recents_inner.setStyleSheet(f"background: {BG_CARD}; border: none;")
@@ -587,12 +616,12 @@ class LandingWidget(QWidget):
 
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-family: 'Segoe UI'; font-size: 12px;"
+            f"color: {TEXT_PRIMARY}; font-family: {FONT_UI}; font-size: 12px;"
             " font-weight: 600; background: transparent; border: none;")
 
         path_lbl = QLabel(path)
         path_lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 10px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_MONO}; font-size: 10px;"
             " background: transparent; border: none;")
 
         left.addWidget(name_lbl)
@@ -600,11 +629,11 @@ class LandingWidget(QWidget):
 
         if status == "Meshed":
             pill_ss = ("background: #D1FAE5; color: #065F46;"
-                       " font-family: Consolas; font-size: 9px;"
+                       f" font-family: {FONT_MONO}; font-size: 9px;"
                        " border-radius: 4px; padding: 2px 0px; border: none;")
         else:
             pill_ss = (f"background: #F3F4F6; color: {TEXT_MUTED};"
-                       " font-family: Consolas; font-size: 9px;"
+                       f" font-family: {FONT_MONO}; font-size: 9px;"
                        " border-radius: 4px; padding: 2px 0px; border: none;")
 
         pill = QLabel(status)
@@ -653,7 +682,7 @@ class LandingWidget(QWidget):
         self._open_path = path
         self._open_path_lbl.setText(path)
         self._open_path_lbl.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-family: Consolas; font-size: 10px;"
+            f"color: {TEXT_PRIMARY}; font-family: {FONT_MONO}; font-size: 10px;"
             " background: transparent;")
         self._update_continue_state()
 
@@ -671,7 +700,7 @@ class LandingWidget(QWidget):
             self._open_path = None
             self._open_path_lbl.setText("No folder selected")
             self._open_path_lbl.setStyleSheet(
-                f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 10px;"
+                f"color: {TEXT_MUTED}; font-family: {FONT_MONO}; font-size: 10px;"
                 " background: transparent;")
             self._update_continue_state()
         self._rebuild_recents_list()
@@ -699,7 +728,7 @@ class LandingWidget(QWidget):
         env_lbl = QLabel("E N V I R O N M E N T")
         env_lbl.setAlignment(Qt.AlignLeft)
         env_lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 9px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_MONO}; font-size: 9px;"
             " font-weight: bold; background: transparent;")
         body.addWidget(env_lbl)
 
@@ -733,7 +762,7 @@ class LandingWidget(QWidget):
                     " font-size: 11px; background: transparent;")
                 text = QLabel(lbl_text)
                 text.setStyleSheet(
-                    f"color: {TEXT_PRIMARY}; font-family: 'Segoe UI';"
+                    f"color: {TEXT_PRIMARY}; font-family: {FONT_UI};"
                     " font-size: 12px; background: transparent;")
                 item_h.addWidget(dot)
                 item_h.addWidget(text)
@@ -765,12 +794,12 @@ class LandingWidget(QWidget):
         title_lbl = QLabel(title)
         title_lbl.setObjectName(f"util_title_{uid}")
         title_lbl.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-family: 'Segoe UI'; font-size: 13px;"
+            f"color: {TEXT_PRIMARY}; font-family: {FONT_UI}; font-size: 13px;"
             " font-weight: 600; background: transparent; border: none;")
         chip_lbl = QLabel(chip)
         chip_lbl.setStyleSheet(f"""
             QLabel {{
-                color: {TEXT_MUTED}; font-family: Consolas; font-size: 10px;
+                color: {TEXT_MUTED}; font-family: {FONT_MONO}; font-size: 10px;
                 background: #F4F4F4; border: none; border-radius: 4px; padding: 2px 6px;
             }}
         """)
@@ -781,7 +810,7 @@ class LandingWidget(QWidget):
 
         desc_lbl = QLabel(desc)
         desc_lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 11px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 11px;"
             " background: transparent; border: none;")
         left.addWidget(desc_lbl)
 
@@ -791,7 +820,7 @@ class LandingWidget(QWidget):
         arrow.setObjectName(f"util_arrow_{uid}")
         arrow.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         arrow.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 10px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 10px;"
             " font-style: italic; background: transparent; border: none;")
 
         row.addLayout(left, 1)
@@ -835,7 +864,7 @@ class LandingWidget(QWidget):
             if arrow:
                 color = KS_RED if selected else TEXT_MUTED
                 arrow.setStyleSheet(
-                    f"color: {color}; font-family: 'Segoe UI'; font-size: 10px;"
+                    f"color: {color}; font-family: {FONT_UI}; font-size: 10px;"
                     " font-style: italic; background: transparent; border: none;")
         self._update_continue_state()
 
@@ -851,7 +880,7 @@ class LandingWidget(QWidget):
         """Small grey letter-spaced caption used above every form field."""
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: Consolas; font-size: 9px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_MONO}; font-size: 9px;"
             " font-weight: 600; background: transparent;")
         return lbl
 
@@ -865,7 +894,7 @@ class LandingWidget(QWidget):
                 border: 1px solid {BORDER};
                 border-radius: 4px;
                 padding: 7px 12px;
-                font-family: 'Segoe UI';
+                font-family: {FONT_UI};
                 font-size: 13px;
             }}
             QPushButton:hover {{ border-color: {TEXT_MUTED}; }}
@@ -884,12 +913,12 @@ class LandingWidget(QWidget):
         active_ss = (
             f"QPushButton {{ background: {BG_CARD}; border: 1px solid {BORDER};"
             f" border-radius: 4px; color: {TEXT_PRIMARY};"
-            f" font-family: 'Segoe UI'; font-size: 12px; font-weight: 600; }}"
+            f" font-family: {FONT_UI}; font-size: 12px; font-weight: 600; }}"
             + STYLE_TOOLTIP
         )
         inactive_ss = (
             f"QPushButton {{ background: transparent; border: none;"
-            f" color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 12px; }}"
+            f" color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 12px; }}"
             + STYLE_TOOLTIP
         )
         if self._mode == "new":
@@ -940,7 +969,7 @@ class LandingWidget(QWidget):
         self._open_path = d
         self._open_path_lbl.setText(d)
         self._open_path_lbl.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-family: Consolas; font-size: 10px;"
+            f"color: {TEXT_PRIMARY}; font-family: {FONT_MONO}; font-size: 10px;"
             " background: transparent;")
         self._update_continue_state()
 
@@ -988,7 +1017,7 @@ class LandingWidget(QWidget):
         names = ", ".join(os.path.basename(p) for p in self._stl_files)
         self._stl_files_lbl.setText(f"{len(self._stl_files)} file(s): {names}")
         self._stl_files_lbl.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-family: Consolas; font-size: 10px;"
+            f"color: {TEXT_PRIMARY}; font-family: {FONT_MONO}; font-size: 10px;"
             " background: transparent;")
         self._update_continue_state()
 

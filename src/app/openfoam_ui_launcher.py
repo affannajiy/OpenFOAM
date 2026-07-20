@@ -1084,7 +1084,11 @@ def _build_setup_script(install_openfoam, apt_packages):
         '  libxcb-shape0 libxcb-util1 \\\n'
         '  libegl1 libgl1 libglib2.0-0 \\\n'
         '  libdbus-1-3 libfontconfig1 libfreetype6 \\\n'
-        '  x11-utils'
+        '  x11-utils \\\n'
+        # Nimbus Sans — metrically Helvetica-compatible. The GUI asks for
+        # "Helvetica" (ui_shared.FONT_UI); without this, fontconfig silently
+        # substitutes DejaVu Sans. Not required to run, only to look right.
+        '  fonts-urw-base35'
     )
     extra = ''
     if apt_packages:

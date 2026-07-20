@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 from ui_shared import (
-    KS_RED, BG_APP, BG_CARD, BORDER, TEXT_PRIMARY, TEXT_MUTED,
+    KS_RED, BG_APP, BG_CARD, BORDER, TEXT_PRIMARY, TEXT_MUTED, FONT_UI,
     STYLE_BTN_PRIMARY, STYLE_BTN_GHOST, STYLE_BTN_SMALL_GHOST, STYLE_BTN_SMALL_RED,
     STYLE_ENTRY, STYLE_SCROLL,
     build_card, positive_float, run_of_command, to_wsl_path,
@@ -232,7 +232,7 @@ class BackgroundMeshWidget(QWidget):
 
         lbl_a = QLabel("PATH")
         lbl_a.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 12px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 12px;"
             " font-weight: 600; letter-spacing: 0.5px; background: transparent;")
         body_a.addWidget(lbl_a)
 
@@ -275,7 +275,7 @@ class BackgroundMeshWidget(QWidget):
             col.setSpacing(4)
             lbl = QLabel(label)
             lbl.setStyleSheet(
-                f"color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 12px;"
+                f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 12px;"
                 " font-weight: 600; letter-spacing: 0.5px; background: transparent;")
             edit = QLineEdit()
             edit.setPlaceholderText("0.05")
@@ -305,7 +305,7 @@ class BackgroundMeshWidget(QWidget):
                 border: 1px solid #F0C040;
                 border-radius: 4px;
                 padding: 6px 10px;
-                font-family: 'Segoe UI';
+                font-family: {FONT_UI};
                 font-size: 13px;
             }}
         """)
@@ -544,6 +544,11 @@ class BackgroundMeshWidget(QWidget):
             self._msg_banner.show_error(
                 fix or "Background mesh failed. Open the log below and read the last "
                 "few red lines to see what went wrong.")
+
+    def is_meshing(self) -> bool:
+        """True while a blockMesh worker is running (used by the main window's
+        close guard so the user cannot quit mid-run without confirming)."""
+        return bool(self._worker and self._worker.isRunning())
 
     def cancel_run(self):
         """Esc shortcut entry: stop a running job only — never touches the

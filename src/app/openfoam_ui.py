@@ -49,8 +49,8 @@ qInstallMessageHandler(_qt_msg_handler)
 
 from ui_shared import (
     KS_RED, KS_BLACK, BG_APP, TEXT_PRIMARY, TEXT_MUTED, TEXT_WHITE,
-    LOG_CMD, BORDER, STYLE_TOOLTIP,
-    find_paraview_exe, msg_info,
+    LOG_CMD, BORDER, STYLE_TOOLTIP, FONT_UI, FONT_MONO,
+    find_paraview_exe, msg_info, msg_question,
 )
 from ui_log_drawer import LogDrawer
 from ui_background_mesh import BackgroundMeshWidget
@@ -99,6 +99,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("OpenFOAM GUI")
         self.resize(1280, 720)   # 720p (HD) default, centered by _center()
+        # 360p floor on the same HD ladder. Everything below the chrome lives in
+        # scroll areas, so this is a genuine usable floor rather than the point
+        # where the layout starts clipping.
+        self.setMinimumSize(640, 360)
         self._tab_idx = 0
 
         central = QWidget()
@@ -142,7 +146,10 @@ class MainWindow(QMainWindow):
 
         self._cwd_timer = QTimer(self)
         self._cwd_timer.timeout.connect(self._refresh_cwd)
-        self._cwd_timer.start(2000)
+        self._cwd_timer.start(5000)
+        # A finished run updates the ParaView button at once, so the slower
+        # poll above is only a safety net for changes made outside the GUI.
+        self._log.status_changed.connect(lambda *_: self._refresh_paraview_state())
 
         self._landing.return_clicked.connect(self._on_return)
         self._root_stack.currentChanged.connect(self._update_header_visibility)
@@ -222,7 +229,7 @@ class MainWindow(QMainWindow):
                 border: none;
                 border-radius: 4px;
                 padding: 5px 10px;
-                font-family: 'Segoe UI';
+                font-family: {FONT_UI};
                 font-size: 11px;
             }}
             QPushButton:hover {{ color: {TEXT_WHITE}; }}
@@ -242,7 +249,7 @@ class MainWindow(QMainWindow):
 
         app_lbl = QLabel("OpenFOAM GUI")
         app_lbl.setStyleSheet(
-            f"color: {TEXT_WHITE}; font-family: 'Segoe UI'; font-size: 14px;"
+            f"color: {TEXT_WHITE}; font-family: {FONT_UI}; font-size: 14px;"
             " font-weight: 600; background: transparent;")
         row.addWidget(app_lbl)
 
@@ -258,7 +265,7 @@ class MainWindow(QMainWindow):
         badge_layout.addWidget(sep_slash)
         self._cwd_lbl = QLabel("")
         self._cwd_lbl.setStyleSheet(
-            f"color: {LOG_CMD}; font-family: Consolas; font-size: 12px;"
+            f"color: {LOG_CMD}; font-family: {FONT_MONO}; font-size: 12px;"
             " background: transparent;")
         badge_layout.addWidget(self._cwd_lbl)
         row.addWidget(self._cwd_badge)
@@ -299,7 +306,7 @@ class MainWindow(QMainWindow):
                 border: 1px solid #374151;
                 border-radius: 4px;
                 padding: 5px 14px;
-                font-family: 'Segoe UI';
+                font-family: {FONT_UI};
                 font-size: 12px;
             }}
             QPushButton:hover {{ border-color: {LOG_CMD}; }}
@@ -322,7 +329,7 @@ class MainWindow(QMainWindow):
                 background: transparent;
                 border: 1px solid #374151;
                 border-radius: 13px;
-                font-family: 'Segoe UI';
+                font-family: {FONT_UI};
                 font-size: 13px;
                 font-weight: 600;
             }}
@@ -359,19 +366,19 @@ class MainWindow(QMainWindow):
 
         self._hero_eyebrow = QLabel("")
         self._hero_eyebrow.setStyleSheet(
-            f"color: {KS_RED}; font-family: Consolas; font-size: 10px;"
+            f"color: {KS_RED}; font-family: {FONT_MONO}; font-size: 10px;"
             " font-weight: bold; background: transparent; letter-spacing: 1px;")
         left.addWidget(self._hero_eyebrow)
 
         self._hero_title = QLabel("")
         self._hero_title.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-family: 'Segoe UI'; font-size: 18px;"
+            f"color: {TEXT_PRIMARY}; font-family: {FONT_UI}; font-size: 18px;"
             " font-weight: 600; background: transparent;")
         left.addWidget(self._hero_title)
 
         self._hero_subtitle = QLabel("")
         self._hero_subtitle.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 12px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 12px;"
             " background: transparent;")
         left.addWidget(self._hero_subtitle)
 
@@ -384,7 +391,7 @@ class MainWindow(QMainWindow):
 
         wd_lbl = QLabel("WORKING DIR")
         wd_lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-family: 'Segoe UI'; font-size: 10px;"
+            f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 10px;"
             " font-weight: 600; letter-spacing: 0.5px; background: transparent;")
         wd_lbl.setAlignment(Qt.AlignRight)
         right.addWidget(wd_lbl)
@@ -394,7 +401,7 @@ class MainWindow(QMainWindow):
             QLabel {{
                 background: {KS_BLACK};
                 color: {TEXT_WHITE};
-                font-family: Consolas;
+                font-family: {FONT_MONO};
                 font-size: 11px;
                 border-radius: 3px;
                 padding: 3px 8px;
@@ -407,6 +414,31 @@ class MainWindow(QMainWindow):
         root.addWidget(hero)
 
     # ── Content stack ──────────────────────────────────────────────────────────
+
+    def closeEvent(self, event):
+        """Guard against quitting mid-mesh. If either tab has a mesher running,
+        confirm first — Yes stops the worker and closes, No leaves the window
+        open so the run finishes."""
+        busy = []
+        if self._bg_widget.is_meshing():
+            busy.append("Background Mesh")
+        if self._snappy_widget.is_meshing():
+            busy.append("Snappy Hex Mesh")
+        if busy:
+            which = " and ".join(busy)
+            if msg_question(
+                    self, "Meshing in progress",
+                    f"A mesh is still running ({which}).\n\n"
+                    "Stop it and close the window?\n"
+                    "Choose No to keep it running.",
+                    default_no=True):
+                self._bg_widget.cancel_run()
+                self._snappy_widget.cancel_run()
+                event.accept()
+            else:
+                event.ignore()
+            return
+        event.accept()
 
     def _build_stack(self, root: QVBoxLayout):
         """Create the two tab content widgets (Background Mesh, Snappy Hex
@@ -442,7 +474,7 @@ class MainWindow(QMainWindow):
 
         self._status_lbl = QLabel("Ready")
         self._status_lbl.setStyleSheet(
-            f"color: {TEXT_WHITE}; font-family: 'Segoe UI'; font-size: 11px;"
+            f"color: {TEXT_WHITE}; font-family: {FONT_UI}; font-size: 11px;"
             " background: transparent;")
         row.addWidget(self._status_lbl)
 
@@ -450,7 +482,7 @@ class MainWindow(QMainWindow):
 
         self._sb_cwd = QLabel("")
         self._sb_cwd.setStyleSheet(
-            f"color: {LOG_CMD}; font-family: Consolas; font-size: 11px;"
+            f"color: {LOG_CMD}; font-family: {FONT_MONO}; font-size: 11px;"
             " background: transparent;")
         row.addWidget(self._sb_cwd)
 
@@ -522,7 +554,7 @@ class MainWindow(QMainWindow):
                         border: none;
                         border-radius: 4px;
                         padding: 5px 14px;
-                        font-family: 'Segoe UI';
+                        font-family: {FONT_UI};
                         font-size: 12px;
                         font-weight: 600;
                     }}
@@ -535,7 +567,7 @@ class MainWindow(QMainWindow):
                         border: 1px solid #374151;
                         border-radius: 4px;
                         padding: 5px 14px;
-                        font-family: 'Segoe UI';
+                        font-family: {FONT_UI};
                         font-size: 12px;
                     }}
                     QPushButton:hover {{ color: {TEXT_WHITE}; border-color: {LOG_CMD}; }}
@@ -554,17 +586,34 @@ class MainWindow(QMainWindow):
         """
         Sync all three CWD display labels to the current working directory.
 
-        Called every 2 seconds by _cwd_timer.  The tab widgets may call
-        os.chdir() when the user browses for a case root, so we poll here
-        rather than relying on a signal to keep the display current.
+        Polled by _cwd_timer because the tab widgets may call os.chdir() when
+        the user browses for a case root.  The three setText calls each dirty
+        the layout, so they are skipped when the path has not actually changed
+        — which is almost always.  The mesh probe still runs every tick (a mesh
+        can appear without the directory changing), but the tick is 5 s rather
+        than 2 s: the case lives on /mnt/c, where every stat crosses WSL's 9p
+        bridge and costs far more than a native one, and paying that 30×/min
+        competed with repaints while resizing.
         """
         cwd = os.getcwd()
-        basename = os.path.basename(cwd) or cwd
-        self._cwd_lbl.setText(basename)   # header bar: short name only
-        self._hero_cwd.setText(cwd)       # hero strip: full path badge
-        self._sb_cwd.setText(cwd)         # status bar: full path (right-aligned)
+        if cwd != getattr(self, "_cwd_cache", None):
+            self._cwd_cache = cwd
+            basename = os.path.basename(cwd) or cwd
+            self._cwd_lbl.setText(basename)   # header bar: short name only
+            self._hero_cwd.setText(cwd)       # hero strip: full path badge
+            self._sb_cwd.setText(cwd)         # status bar: full path (right-aligned)
 
+        self._refresh_paraview_state()
+
+    def _refresh_paraview_state(self):
+        """Enable the ParaView button only when the current case has a mesh.
+        Split out so a finished mesh run can update it immediately (via the log
+        drawer's status_changed) instead of waiting for the next poll tick."""
+        cwd = os.getcwd()
         has_mesh = os.path.isfile(os.path.join(cwd, "constant", "polyMesh", "points"))
+        if has_mesh == getattr(self, "_has_mesh_cache", None):
+            return
+        self._has_mesh_cache = has_mesh
         self._paraview_btn.setEnabled(has_mesh)
         self._paraview_btn.setToolTip(
             "Open the current case in ParaView to inspect the mesh.\n"
