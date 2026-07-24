@@ -21,7 +21,7 @@ insertion (_on_append) therefore always runs on the main thread.
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QPlainTextEdit, QSizePolicy, QFrame,
-                              QApplication)
+                              QApplication, QProgressBar)
 from PyQt5.QtCore import (Qt, QTimer, QPropertyAnimation, QEasingCurve,
                            pyqtSignal)
 from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
@@ -169,6 +169,29 @@ class LogDrawer(QWidget):
         self._step_lbl.setVisible(False)
         hdr_row.addWidget(self._step_lbl)
 
+        # Slim progress bar showing how far a meshing run has got through its
+        # phases.  Hidden until set_progress() is called; the owning tab hides
+        # it again with reset_progress() when the run ends.
+        self._progress = QProgressBar()
+        self._progress.setFixedWidth(120)
+        self._progress.setFixedHeight(14)
+        self._progress.setTextVisible(False)
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
+        self._progress.setStyleSheet("""
+            QProgressBar {
+                background: #2D3748;
+                border: none;
+                border-radius: 7px;
+            }
+            QProgressBar::chunk {
+                background: #F59E0B;
+                border-radius: 7px;
+            }
+        """)
+        self._progress.setVisible(False)
+        hdr_row.addWidget(self._progress)
+
         self._count_lbl = QLabel("0 lines")
         self._count_lbl.setStyleSheet(
             f"color: {LOG_CMD}; font-family: {FONT_MONO}; font-size: 12px;"
@@ -256,6 +279,21 @@ class LogDrawer(QWidget):
         """Show/update the short 'Step X/3: …' label next to OUTPUT LOG. Empty text hides it."""
         self._step_lbl.setText(text)
         self._step_lbl.setVisible(bool(text))
+
+    def set_progress(self, pct: int) -> None:
+        """Show the header progress bar and set its value (0–100, clamped).
+
+        Callers reach this via Qt signals that already deliver on the main
+        thread, so the widget update is safe."""
+        pct = max(0, min(100, int(pct)))
+        self._progress.setValue(pct)
+        self._progress.setVisible(True)
+
+    def reset_progress(self) -> None:
+        """Reset the header progress bar to zero and hide it (run finished,
+        cancelled, or idle)."""
+        self._progress.setValue(0)
+        self._progress.setVisible(False)
 
     def set_running(self, running: bool) -> None:
         """

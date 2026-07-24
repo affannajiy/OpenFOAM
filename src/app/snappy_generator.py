@@ -422,6 +422,71 @@ def _write_inputs_record(config: dict, case_dir: str, defaults: dict, log_cb) ->
     log_cb(f"[generate] Inputs recorded to {path}", "info")
 
 
+def _remove_time_dirs(case_dir: str, log_cb) -> None:
+    """
+    Remove leftover numeric time directories in the case root.
+
+    snappyHexMesh -overwrite writes the final mesh into constant/polyMesh but
+    can still leave numbered time directories behind. They are intermediate
+    output only and confuse ParaView, so remove every non-zero numeric dir.
+    """
+    for entry in os.listdir(case_dir):
+        entry_path = os.path.join(case_dir, entry)
+        if not os.path.isdir(entry_path):
+            continue
+        try:
+            if float(entry) != 0.0:
+                shutil.rmtree(entry_path)
+                log_cb(f"[cleanup] Removed time directory: {entry}/", "info")
+        except ValueError:
+            pass
+
+
+def _refresh_foam(case_dir: str, log_cb) -> None:
+    """
+    Recreate the (empty) <case>.foam sentinel so ParaView picks up the fresh
+    mesh — remove any stale .foam files first.
+    """
+    case_name = os.path.basename(case_dir)
+    for f in os.listdir(case_dir):
+        if f.endswith(".foam"):
+            try:
+                os.remove(os.path.join(case_dir, f))
+            except Exception:
+                pass
+    foam_path = os.path.join(case_dir, f"{case_name}.foam")
+    open(foam_path, "w").close()
+    log_cb(f".foam updated: {foam_path}\n", "info")
+
+
+def restore_mesh_backup(case_dir: str, log_cb) -> bool:
+    """
+    Restore the pre-snappy background mesh saved by generate_and_run.
+
+    Copies programOutputs/polyMesh_backup/ back over constant/polyMesh, then
+    cleans up any snappy numeric time dirs and refreshes the .foam sentinel.
+
+    Returns True on success, False if there is no backup or restore failed.
+    """
+    backup_dir = os.path.join(case_dir, "programOutputs", "polyMesh_backup")
+    const_polymesh = os.path.join(case_dir, "constant", "polyMesh")
+
+    if not os.path.isfile(os.path.join(backup_dir, "points")):
+        log_cb("[restore] No mesh backup found.", "info")
+        return False
+
+    try:
+        shutil.rmtree(const_polymesh, ignore_errors=True)
+        shutil.copytree(backup_dir, const_polymesh)
+        _remove_time_dirs(case_dir, log_cb)
+        _refresh_foam(case_dir, log_cb)
+        log_cb("[restore] Background mesh restored from backup.", "info")
+        return True
+    except Exception as e:
+        log_cb(f"[restore] Could not restore mesh backup: {e}", "error")
+        return False
+
+
 def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
     """
     Generate snappyHexMeshDict and run snappyHexMesh in one shot.
@@ -473,6 +538,21 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
 
     log_cb("[generate] snappyHexMeshDict written successfully.\n", "info")
 
+    # ── Back up the background mesh before -overwrite clobbers it ────────────────
+    const_polymesh = os.path.join(case_dir, "constant", "polyMesh")
+    if os.path.isdir(const_polymesh):
+        try:
+            prog_out = os.path.join(case_dir, "programOutputs")
+            os.makedirs(prog_out, exist_ok=True)
+            backup_dir = os.path.join(prog_out, "polyMesh_backup")
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            shutil.copytree(const_polymesh, backup_dir)
+            log_cb(
+                "[backup] Saved background mesh to programOutputs/polyMesh_backup/ "
+                "(before overwrite).", "info")
+        except Exception as e:
+            log_cb(f"[backup] Could not back up background mesh: {e}", "warn")
+
     # ── Run snappyHexMesh ────────────────────────────────────────────────────────
     log_cb("[snappyHexMesh] Starting snappyHexMesh -overwrite...\n", "info")
     cmd = f"source {_OF_BASHRC} && snappyHexMesh -overwrite"
@@ -489,31 +569,7 @@ def generate_and_run(config: dict, case_dir: str, log_cb) -> bool:
         return False
 
     # ── Post-run cleanup ─────────────────────────────────────────────────────────
-    # snappyHexMesh -overwrite writes the final mesh into constant/polyMesh, but
-    # can still leave numbered time directories behind. They are intermediate
-    # output only and confuse ParaView, so remove every non-zero numeric dir.
-    for entry in os.listdir(case_dir):
-        entry_path = os.path.join(case_dir, entry)
-        if not os.path.isdir(entry_path):
-            continue
-        try:
-            if float(entry) != 0.0:
-                shutil.rmtree(entry_path)
-                log_cb(f"[cleanup] Removed time directory: {entry}/", "info")
-        except ValueError:
-            pass
-
-    # Recreate the (empty) <case>.foam sentinel so ParaView picks up the fresh
-    # mesh — remove any stale .foam files first.
-    case_name = os.path.basename(case_dir)
-    for f in os.listdir(case_dir):
-        if f.endswith(".foam"):
-            try:
-                os.remove(os.path.join(case_dir, f))
-            except Exception:
-                pass
-    foam_path = os.path.join(case_dir, f"{case_name}.foam")
-    open(foam_path, "w").close()
-    log_cb(f"[snappyHexMesh] .foam updated: {foam_path}\n", "info")
+    _remove_time_dirs(case_dir, log_cb)
+    _refresh_foam(case_dir, log_cb)
     log_cb("[snappyHexMesh] Done.\n", "info")
     return True

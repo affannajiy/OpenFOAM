@@ -44,7 +44,7 @@ from ui_shared import (
     STYLE_ENTRY, STYLE_COMBO, STYLE_SCROLL, STYLE_CHECKBOX, STYLE_TOOLTIP,
     build_card, to_wsl_path, PlusMinusSpinBox, ChevronComboBox, get_stl_zone_names,
     find_paraview_exe, make_info_icon, MessageBanner, scan_log_for_fix,
-    load_prefs, save_prefs, msg_warning, msg_critical,
+    load_prefs, save_prefs, msg_warning, msg_critical, msg_info, msg_question,
     pick_open_files, pick_existing_dir,
 )
 
@@ -131,6 +131,8 @@ class SnappyHexWidget(QWidget):
         self._shapes_container_layout = None
         self._geom_unit_combo       = None
         self._cancel_btn            = None
+        self._undo_btn              = None
+        self._phase_total           = 3
         self._ncbl_sp               = None
         self._loc_x_sp              = None
         self._loc_y_sp              = None
@@ -1255,6 +1257,16 @@ class SnappyHexWidget(QWidget):
             "A cancelled mesh is incomplete — run again before using it.")
         self._cancel_btn.clicked.connect(self.cancel_run)
         btn_row.addWidget(self._cancel_btn)
+        btn_row.addStretch()
+
+        self._undo_btn = QPushButton("↶ Undo last mesh")
+        self._undo_btn.setStyleSheet(STYLE_BTN_SMALL_GHOST)
+        self._undo_btn.setToolTip(
+            "Restore the background mesh from before the last meshing run.\n"
+            "Use this to try different settings.")
+        self._undo_btn.clicked.connect(self._undo_last_mesh)
+        btn_row.addWidget(self._undo_btn)
+
         self._run_btn = QPushButton("Generate Snappy Hex Mesh")
         self._run_btn.setStyleSheet(STYLE_BTN_PRIMARY)
         self._run_btn.setEnabled(_BACKEND_OK)
@@ -1266,7 +1278,6 @@ class SnappyHexWidget(QWidget):
             "✓ Solids have Vol Dir = Inside\n"
             "✓ Point is inside the box, outside solids, not (0,0,0)")
         self._run_btn.clicked.connect(self._generate_and_run)
-        btn_row.addStretch()
         btn_row.addWidget(self._run_btn)
         body.addLayout(btn_row)
 
@@ -1277,6 +1288,58 @@ class SnappyHexWidget(QWidget):
         self._update_dict_banner()
         self._update_time_dirs()
         self._refresh_preflight()
+        self._refresh_mesh_actions()
+
+    def _refresh_mesh_actions(self):
+        """Enable/disable the Undo button.
+
+        Undo is available only when a background-mesh backup exists, and is
+        disabled while a meshing run is active (the mesh is changing)."""
+        busy = self.is_meshing()
+        has_backup = os.path.isfile(
+            os.path.join(self._cwd, "programOutputs", "polyMesh_backup", "points"))
+        if getattr(self, "_undo_btn", None):
+            self._undo_btn.setEnabled(has_backup and not busy)
+
+    def _refresh_undo_state(self):
+        """Backwards-compatible alias for _refresh_mesh_actions."""
+        self._refresh_mesh_actions()
+
+    def _boundary_bbox(self):
+        """Bounding box of the LARGEST used Boundary-type STL, or None.
+
+        Same ASCII-STL vertex parse as _suggest_location_in_mesh, but scoped to
+        rows that are used AND set to Boundary (the outer shell being kept).
+        Returns (min_x, max_x, min_y, max_y, min_z, max_z) or None on any error
+        or when no Boundary STL can be parsed."""
+        try:
+            best_vol = 0.0
+            best_box = None
+            for fname, full_path, widgets in self._file_rows:
+                if not widgets["use_cb"].isChecked():
+                    continue
+                if widgets["surf_type_combo"].currentText() != "Boundary":
+                    continue
+                if not fname.lower().endswith(".stl") or not os.path.isfile(full_path):
+                    continue
+                with open(full_path, "r", errors="ignore") as f:
+                    text = f.read()
+                verts = _VERTEX_RE.findall(text)
+                if not verts:
+                    continue
+                xs = [float(v[0]) for v in verts]
+                ys = [float(v[1]) for v in verts]
+                zs = [float(v[2]) for v in verts]
+                mn_x, mx_x = min(xs), max(xs)
+                mn_y, mx_y = min(ys), max(ys)
+                mn_z, mx_z = min(zs), max(zs)
+                vol = (mx_x - mn_x) * (mx_y - mn_y) * (mx_z - mn_z)
+                if vol > best_vol:
+                    best_vol = vol
+                    best_box = (mn_x, mx_x, mn_y, mx_y, mn_z, mx_z)
+            return best_box
+        except Exception:
+            return None
 
     def _refresh_preflight(self):
         """Cheap pre-Generate sanity checks, rendered as a checklist in Sec 05."""
@@ -1297,10 +1360,18 @@ class SnappyHexWidget(QWidget):
                         "Every FaceZone file has Cell Zone ticked" if facezone_rows
                         else "Every FaceZone file has Cell Zone ticked (n/a — no FaceZone files)"))
 
-        loc_set = not (self._loc_x_sp and self._loc_x_sp.value() == 0.0
-                       and self._loc_y_sp and self._loc_y_sp.value() == 0.0
-                       and self._loc_z_sp and self._loc_z_sp.value() == 0.0)
-        checks.append((loc_set, "Location In Mesh set (not 0,0,0)"))
+        x = self._loc_x_sp.value() if self._loc_x_sp else 0.0
+        y = self._loc_y_sp.value() if self._loc_y_sp else 0.0
+        z = self._loc_z_sp.value() if self._loc_z_sp else 0.0
+        bbox = self._boundary_bbox()
+        if bbox is not None:
+            min_x, max_x, min_y, max_y, min_z, max_z = bbox
+            loc_ok = (min_x < x < max_x and min_y < y < max_y and min_z < z < max_z)
+            loc_label = "Location In Mesh is inside the domain"
+        else:
+            loc_ok = not (x == 0.0 and y == 0.0 and z == 0.0)
+            loc_label = "Location In Mesh set (not 0,0,0)"
+        checks.append((loc_ok, loc_label))
 
         lines = []
         for ok, text in checks:
@@ -1308,6 +1379,23 @@ class SnappyHexWidget(QWidget):
             color = "#166534" if ok else "#B91C1C"
             lines.append(f'<span style="color:{color};">{mark}</span> {text}')
         self._preflight_lbl.setText("<br>".join(lines))
+
+    def refresh_state(self):
+        """Re-run the disk-derived UI so the tab reflects on-disk reality.
+
+        Called on tab entry (showEvent) and when a run finishes
+        (status_changed). Deliberately omits _refresh_file_list — the
+        QFileSystemWatcher already keeps the file table current, and a full
+        rebuild on every tab entry would be wasteful."""
+        self._refresh_preflight()
+        self._refresh_mesh_actions()
+        self._update_time_dirs()
+        self._update_dict_banner()
+
+    def showEvent(self, event):
+        """Refresh disk-derived state whenever the tab becomes visible."""
+        super().showEvent(event)
+        self.refresh_state()
 
     # ── Banner / status helpers ────────────────────────────────────────────────────
 
@@ -1363,6 +1451,7 @@ class SnappyHexWidget(QWidget):
         self._refresh_file_list()
         self._update_dict_banner()
         self._update_time_dirs()
+        self._refresh_mesh_actions()
         self._rewatch_constant()
 
     def _change_cwd(self):
@@ -1385,6 +1474,7 @@ class SnappyHexWidget(QWidget):
         self._refresh_file_list()
         self._update_dict_banner()
         self._update_time_dirs()
+        self._refresh_mesh_actions()
         self._rewatch_constant()
 
     # ── Auto file-list refresh ─────────────────────────────────────────────────────
@@ -1607,6 +1697,51 @@ class SnappyHexWidget(QWidget):
 
     # ── Generate & Run ─────────────────────────────────────────────────────────────
 
+    # ── Undo last mesh ─────────────────────────────────────────────────────────────
+
+    def _undo_last_mesh(self):
+        """Restore the background mesh saved before the last meshing run, so the
+        user can adjust settings and try again.  Confirmed first; runs
+        synchronously (a fast directory copy) with the mesh buttons disabled."""
+        if not msg_question(
+                self, "Undo last mesh?",
+                "This discards the current mesh and restores the background mesh "
+                "from before the last run. Continue?"):
+            return
+
+        # Disable the mesh action buttons during the copy so the user can't
+        # double-trigger; re-enabled by _refresh_mesh_actions afterwards.
+        if self._undo_btn:
+            self._undo_btn.setEnabled(False)
+        if self._run_btn:
+            self._run_btn.setEnabled(False)
+
+        try:
+            restored = snappy_generator.restore_mesh_backup(self._cwd, self._log.write)
+        except Exception as exc:
+            restored = False
+            self._log.write(f"[Undo] Restore failed: {exc}", "error")
+
+        if self._run_btn:
+            self._run_btn.setEnabled(_BACKEND_OK)
+
+        if restored:
+            self._log.status_changed.emit("Mesh restored", "#22C55E")
+            if self._msg_banner:
+                self._msg_banner.show_success(
+                    "Background mesh restored — adjust settings and run again.")
+        else:
+            if self._msg_banner:
+                self._msg_banner.show_error("No mesh backup was found to restore.")
+            else:
+                msg_info(self, "Nothing to restore",
+                         "No mesh backup was found to restore.")
+
+        self._update_time_dirs()
+        self._update_dict_banner()
+        self._refresh_preflight()
+        self._refresh_mesh_actions()
+
     def _generate_and_run(self):
         """Run button: re-check pre-flight, collect the config on the GUI
         thread (popping a dialog on bad input), then hand it to _SnappyWorker
@@ -1629,10 +1764,15 @@ class SnappyHexWidget(QWidget):
             "snappy_add_layers": self._add_layers_cb.isChecked() if self._add_layers_cb else False,
         })
 
+        # Total phases: castellate + snap always run; add-layers only when the
+        # layers checkbox is on.  Drives the header progress bar.
+        self._phase_total = 3 if config["layers"]["enabled"] else 2
+
         self._run_btn.setEnabled(False)
         self._run_btn.setText("Running...")
         if self._cancel_btn:
             self._cancel_btn.setEnabled(True)
+        self._refresh_mesh_actions()   # disable Undo while a run is active
         self._log.set_running(True)
         self._log.write("\n[snappyHexMesh] Starting...\n", "info")
 
@@ -1641,6 +1781,7 @@ class SnappyHexWidget(QWidget):
         if self._msg_banner:
             self._msg_banner.hide_msg()
         self._log.set_step("Step 1/3: Castellating mesh…")
+        self._log.set_progress(3)   # small active sliver while phase 1 starts
 
         worker = _SnappyWorker(config, self._cwd)
         worker.log_signal.connect(self._log.write)
@@ -1668,10 +1809,12 @@ class SnappyHexWidget(QWidget):
         self._log.write("[snappyHexMesh] Cancelled by user.\n", "warn")
         self._log.set_running(False)
         self._log.set_step("")
+        self._log.reset_progress()
         self._run_btn.setEnabled(True)
-        self._run_btn.setText("Generate Dict && Run snappyHexMesh")
+        self._run_btn.setText("Generate Snappy Hex Mesh")
         if self._cancel_btn:
             self._cancel_btn.setEnabled(False)
+        self._refresh_mesh_actions()
         if self._msg_banner:
             self._msg_banner.show_error(
                 "Run cancelled. The mesh is incomplete — run "
@@ -1683,24 +1826,30 @@ class SnappyHexWidget(QWidget):
         and update the Step X/3 label from snappyHexMesh's own phase headers."""
         self._run_log.append(message)
         low = message.lower()
+        n = self._phase_total or 3
         if "snapping mesh" in low:
             self._log.set_step("Step 2/3: Snapping mesh…")
+            self._log.set_progress(round(1 / n * 100))
         elif "adding layers" in low or "layer addition" in low:
             self._log.set_step("Step 3/3: Adding layers…")
+            self._log.set_progress(round(2 / n * 100))
         elif "castellating mesh" in low:
             self._log.set_step("Step 1/3: Castellating mesh…")
+            self._log.set_progress(round(0 / n * 100) + 3)
 
     def _on_run_done(self, success: bool):
         """Worker finished: reset the run button and status displays, show the
         green/red result banner, and optionally auto-launch ParaView."""
         self._log.set_running(False)
         self._log.set_step("")
+        self._log.reset_progress()
         self._run_btn.setEnabled(True)
-        self._run_btn.setText("Generate Dict && Run snappyHexMesh")
+        self._run_btn.setText("Generate Snappy Hex Mesh")
         if self._cancel_btn:
             self._cancel_btn.setEnabled(False)
         self._update_time_dirs()
         self._update_dict_banner()
+        self._refresh_mesh_actions()
         tag   = "info" if success else "error"
         color = "#22C55E" if success else "#EF4444"
         msg   = "Done" if success else "Error — check log"

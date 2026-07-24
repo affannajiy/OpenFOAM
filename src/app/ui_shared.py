@@ -1494,6 +1494,10 @@ def run_foam_cmd(cmd: str, cwd: str, log_callback: Callable) -> int:
 # keyword in the list to appear somewhere in the scanned text (case-insensitive
 # substring).  Ordered specific → generic so the most precise fix wins.
 OF_ERROR_MAP = [
+    (["grid too fine"],
+     "Your DX/DY/DZ is too small for this geometry, so the background mesh would "
+     "have too many cells to build. DX/DY/DZ is the cell SIZE — increase it (use a "
+     "bigger number) to make the mesh coarser, then click Generate again."),
     (["jinja2"],
      "The 'jinja2' package is missing in WSL. Open the Ubuntu terminal and run:  "
      "sudo apt-get install -y python3-jinja2  — then click Generate again."),

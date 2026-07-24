@@ -1,0 +1,57 @@
+{
+    "_generator": "openfoam_ui \u2014 GUI run record (backgroundMesh handled by Background Mesh tab)",
+    "settings": {
+        "geometryUnit": "mm",
+        "addLayers": false,
+        "mergeTolerance": 1e-06
+    },
+    "geometry": {
+        "files": [
+            "geom.stl",
+            "inner-cylinder.stl"
+        ],
+        "standardShapes": []
+    },
+    "surfaceHandling": {
+        "selectedParts": [
+            "geom",
+            "inner-cylinder"
+        ],
+        "surfaces": {
+            "geom": {
+                "type": "boundary",
+                "refinementLevels": [
+                    1,
+                    1
+                ]
+            },
+            "inner-cylinder": {
+                "type": "faceZone",
+                "refinementLevels": [
+                    1,
+                    1
+                ],
+                "cellZoneInside": "inside"
+            }
+        }
+    },
+    "volumeRefinement": {
+        "selectedParts": [
+            "inner-cylinder"
+        ],
+        "regions": {
+            "inner-cylinder": {
+                "mode": "inside",
+                "level": 0
+            }
+        }
+    },
+    "castellatedMeshControls": {
+        "locationInMesh": [
+            0.3,
+            0.3,
+            0.3
+        ],
+        "nCellsBetweenLevels": 2
+    }
+}

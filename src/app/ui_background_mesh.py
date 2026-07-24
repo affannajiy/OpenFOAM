@@ -41,6 +41,53 @@ except ImportError:
     _GBM_AVAILABLE = False
 
 
+# Above this projected cell count we refuse to write blockMeshDict.  blockMesh
+# stores its point count in a 32-bit signed int (~2.1 billion max); once the
+# grid exceeds that it wraps negative and aborts with a cryptic "bad size -…"
+# stack trace.  50 million is already a very heavy background mesh — well before
+# the overflow point — so anything larger is almost always a too-small DX/DY/DZ.
+_MAX_BG_CELLS = 50_000_000
+
+
+def _parse_bbox(output: str):
+    """Extract the STL bounding box (xMin,yMin,zMin,xMax,yMax,zMax) from
+    surfaceCheck stdout.  Uses generateBackgroundMesh's parser when available,
+    otherwise a regex fallback.  Returns the 6-tuple or None."""
+    if _GBM_AVAILABLE:
+        return extract_bounding_box_info(output)
+    import re
+    pat = re.compile(
+        r"Bounding Box : \((-?\S+) (-?\S+) (-?\S+)\) \((-?\S+) (-?\S+) (-?\S+)\)")
+    m = pat.search(output)
+    return tuple(map(float, m.groups())) if m else None
+
+
+def _projected_cell_count(bbox, dx, dy, dz):
+    """Cell count blockMesh would build for this bbox + grid, mirroring exactly
+    the padding/rounding logic in generateBackgroundMesh.create_block_mesh_dict.
+
+    Returns (total_cells, (nx, ny, nz)), or (None, None) if any edge is shorter
+    than its grid size (create_block_mesh_dict would raise in that case)."""
+    xMin, yMin, zMin, xMax, yMax, zMax = bbox
+    mins = [xMin, yMin, zMin]
+    maxs = [xMax, yMax, zMax]
+    delta = [dx, dy, dz]
+    scaleBox = 1.1
+    n = []
+    for i in range(3):
+        C = 0.5 * (mins[i] + maxs[i])
+        lo = C - scaleBox * (C - mins[i])
+        hi = C + scaleBox * (maxs[i] - C)
+        length = hi - lo
+        if length <= delta[i]:
+            return None, None
+        num = int(length / delta[i])
+        if lo + num * delta[i] < hi:
+            num += 1
+        n.append(num)
+    return n[0] * n[1] * n[2], (n[0], n[1], n[2])
+
+
 # ── Worker thread ──────────────────────────────────────────────────────────────
 
 class _BgMeshWorker(QThread):
@@ -63,6 +110,7 @@ class _BgMeshWorker(QThread):
         self.dy = dy
         self.dz = dz
         self.cwd = cwd
+        self._cell_summary = None  # (total, (nx, ny, nz)) once blockMesh succeeds
 
     def _log(self, msg: str, tag: str = ""):
         """Convenience wrapper so internal code can call self._log() like a function."""
@@ -116,18 +164,29 @@ class _BgMeshWorker(QThread):
                 f.write(output)
 
             # ── Parse bounding box ───────────────────────────────────────────
-            if _GBM_AVAILABLE:
-                bbox = extract_bounding_box_info(output)
-            else:
-                import re
-                pat = re.compile(
-                    r"Bounding Box : \((-?\S+) (-?\S+) (-?\S+)\) \((-?\S+) (-?\S+) (-?\S+)\)")
-                m = pat.search(output)
-                bbox = tuple(map(float, m.groups())) if m else None
+            bbox = _parse_bbox(output)
 
             if not bbox:
                 self._log("[Background Mesh] Could not parse bounding box.\n", "error")
                 self.status_changed.emit("Error — check log", "#EF4444")
+                return
+
+            # ── Guard against an accidental billion-cell grid ────────────────
+            # DX/DY/DZ is the cell SIZE, so a tiny value on a large domain asks
+            # for astronomically many cells.  Catch that here with a clear
+            # message instead of letting blockMesh abort on int32 overflow.
+            total, dims = _projected_cell_count(bbox, self.dx, self.dy, self.dz)
+            if total is not None and total > _MAX_BG_CELLS:
+                nx, ny, nz = dims
+                self._log(
+                    f"[Background Mesh] Grid too fine: DX/DY/DZ of "
+                    f"{self.dx}/{self.dy}/{self.dz} would create "
+                    f"{nx}×{ny}×{nz} ≈ {total:,} cells.\n"
+                    f"[Background Mesh] That exceeds the {_MAX_BG_CELLS:,}-cell "
+                    f"safety limit and would crash blockMesh. Increase DX/DY/DZ "
+                    f"(use a larger number) so the background mesh is coarser.\n",
+                    "error")
+                self.status_changed.emit("Grid too fine — increase DX/DY/DZ", "#EF4444")
                 return
 
             # ── Write blockMeshDict ──────────────────────────────────────────
@@ -170,12 +229,62 @@ class _BgMeshWorker(QThread):
             foam_path = os.path.join(cwd, f"{case_name}.foam")
             open(foam_path, "w").close()
             self._log(f"[Background Mesh] Created: {foam_path}\n", "info")
+
+            # ── Mesh summary (visibility of system status) ───────────────────
+            if total is not None and dims is not None:
+                nx, ny, nz = dims
+                self._cell_summary = (total, dims)
+                self._log(
+                    f"[Background Mesh] Mesh built: {nx}×{ny}×{nz} = "
+                    f"{total:,} cells.\n", "info")
+
             self._log("[Background Mesh] Done.\n", "info")
             self.status_changed.emit("Done", "#22C55E")
 
         except Exception as exc:
             self._log(f"[Background Mesh] Exception: {exc}\n", "error")
             self.status_changed.emit("Error — check log", "#EF4444")
+
+
+# ── Bounding-box probe thread ────────────────────────────────────────────────
+
+class _BboxWorker(QThread):
+    """
+    Lightweight probe that runs surfaceCheck only to read the STL bounding box.
+
+    It writes no files and never touches polyMesh — it exists purely to feed the
+    live cell-count estimate.  Communicates only via signals.
+
+    Signals
+    -------
+    bbox_ready(tuple)  — the parsed (xMin,yMin,zMin,xMax,yMax,zMax) box
+    bbox_failed()      — surfaceCheck failed or the box could not be parsed
+    """
+
+    bbox_ready  = pyqtSignal(tuple)
+    bbox_failed = pyqtSignal()
+
+    def __init__(self, stl_path: str, cwd: str):
+        super().__init__()
+        self.stl_path = stl_path
+        self.cwd = cwd
+
+    def run(self):
+        try:
+            output_lines: list[str] = []
+            rc = run_of_command(
+                f"surfaceCheck {self.stl_path}", self.cwd,
+                lambda line, tag="": output_lines.append(line))
+            if rc != 0:
+                self.bbox_failed.emit()
+                return
+            bbox = _parse_bbox("".join(output_lines))
+            if bbox:
+                self.bbox_ready.emit(tuple(bbox))
+            else:
+                self.bbox_failed.emit()
+        except Exception:
+            self.bbox_failed.emit()
 
 
 # ── Tab widget ─────────────────────────────────────────────────────────────────
@@ -196,9 +305,12 @@ class BackgroundMeshWidget(QWidget):
     def __init__(self, log_drawer, parent=None):
         super().__init__(parent)
         self._log      = log_drawer  # LogDrawer instance shared with other tabs
-        self._worker   = None        # holds the active QThread, or None
+        self._worker   = None        # holds the active mesh QThread, or None
         self._run_log  = []          # collected output lines for error scanning
         self._last_color = ""        # last status colour reported by the worker
+        self._bbox        = None     # cached STL bounding box for the estimate
+        self._bbox_worker = None     # active _BboxWorker probe, or None
+        self._bbox_stl    = None     # STL path the cached/pending bbox belongs to
         self.setStyleSheet(f"background: {BG_APP};")
         self._build()
 
@@ -246,6 +358,7 @@ class BackgroundMeshWidget(QWidget):
             "becomes the background block. Case root is auto-detected\n"
             "from constant/ in the path.")
         self._stl_edit.textChanged.connect(self._update_overwrite_banner)
+        self._stl_edit.textChanged.connect(self._on_stl_changed)
 
         browse_btn = QPushButton("Browse…")
         browse_btn.setStyleSheet(STYLE_BTN_SMALL_RED)
@@ -293,8 +406,17 @@ class BackgroundMeshWidget(QWidget):
             grid_row.addLayout(col)
             self._d_edits[name] = edit
             self._d_errs[name]  = err
+            edit.textChanged.connect(self._update_estimate)
 
         body_b.addLayout(grid_row)
+
+        # Live cell-count estimate: warns about a too-fine grid before running.
+        self._estimate_lbl = QLabel("")
+        self._estimate_lbl.setWordWrap(True)
+        self._estimate_lbl.setStyleSheet(
+            f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 12px;"
+            " background: transparent;")
+        body_b.addWidget(self._estimate_lbl)
 
         # ── Overwrite banner ──────────────────────────────────────────────────
         self._overwrite_banner = QLabel("")
@@ -349,6 +471,8 @@ class BackgroundMeshWidget(QWidget):
             val = prefs.get(f"bg_{name}")
             if val is not None and positive_float(val) is not None:
                 self._d_edits[name].setText(str(val))
+
+        self._update_estimate()
 
     # ── Slots ──────────────────────────────────────────────────────────────────
 
@@ -449,6 +573,105 @@ class BackgroundMeshWidget(QWidget):
         else:
             self._overwrite_banner.setVisible(False)
 
+    # ── Live cell-count estimate ────────────────────────────────────────────
+
+    def _on_stl_changed(self):
+        """STL path edited: drop any box cached for a different file, refresh
+        the estimate, and probe the new file's bounding box if it exists."""
+        stl = self._stl_edit.text().strip()
+        if self._bbox_stl is not None and stl != self._bbox_stl:
+            self._bbox = None
+            self._bbox_stl = None
+        self._update_estimate()
+        if stl and os.path.isfile(stl):
+            self._start_bbox_probe(stl)
+
+    def _start_bbox_probe(self, stl: str):
+        """Run surfaceCheck in the background to read the STL bounding box for
+        the live estimate.  Guarded so overlapping probes are never spawned."""
+        if stl == self._bbox_stl and self._bbox is not None:
+            return  # already have this file's box
+        if self._bbox_worker and self._bbox_worker.isRunning():
+            return  # a probe is in flight; it re-checks the path on finish
+        self._bbox_worker = _BboxWorker(stl, os.getcwd())
+        self._bbox_worker.bbox_ready.connect(self._on_bbox_ready)
+        self._bbox_worker.bbox_failed.connect(self._on_bbox_failed)
+        self._bbox_worker.start()
+
+    def _on_bbox_ready(self, bbox: tuple):
+        """Probe succeeded: cache the box only if it still matches the current
+        STL path, then refresh the estimate."""
+        worker = self._bbox_worker
+        stl_done = worker.stl_path if worker else None
+        self._bbox_worker = None
+        if stl_done == self._stl_edit.text().strip():
+            self._bbox = bbox
+            self._bbox_stl = stl_done
+            self._update_estimate()
+        self._recheck_bbox_probe()
+
+    def _on_bbox_failed(self):
+        """Probe failed: forget it and re-check whether the current path still
+        needs a box."""
+        self._bbox_worker = None
+        self._recheck_bbox_probe()
+
+    def _recheck_bbox_probe(self):
+        """After a probe finishes, start a fresh one if the STL path changed
+        while the previous probe was running."""
+        current = self._stl_edit.text().strip()
+        if current and os.path.isfile(current) and current != self._bbox_stl:
+            self._start_bbox_probe(current)
+
+    def _stop_bbox_probe(self):
+        """Terminate a pending bounding-box probe so it can't outlive the widget."""
+        if self._bbox_worker and self._bbox_worker.isRunning():
+            self._bbox_worker.terminate()
+            self._bbox_worker.wait()
+        self._bbox_worker = None
+
+    def _update_estimate(self):
+        """Refresh the estimated cell-count label from the cached bounding box
+        and the current DX/DY/DZ values."""
+        muted = (f"color: {TEXT_MUTED}; font-family: {FONT_UI}; font-size: 12px;"
+                 " background: transparent;")
+
+        def _set(text, color):
+            self._estimate_lbl.setText(text)
+            self._estimate_lbl.setStyleSheet(
+                f"color: {color}; font-family: {FONT_UI}; font-size: 12px;"
+                " background: transparent;")
+
+        if self._bbox is None:
+            self._estimate_lbl.setText(
+                "Enter a valid STL to see the estimated cell count.")
+            self._estimate_lbl.setStyleSheet(muted)
+            return
+
+        vals = {}
+        for name in ("dx", "dy", "dz"):
+            v = positive_float(self._d_edits[name].text().strip())
+            if v is None:
+                self._estimate_lbl.setText(
+                    "Enter DX, DY and DZ to see the estimated cell count.")
+                self._estimate_lbl.setStyleSheet(muted)
+                return
+            vals[name] = v
+
+        total, dims = _projected_cell_count(
+            self._bbox, vals["dx"], vals["dy"], vals["dz"])
+        if total is None:
+            _set("Grid too coarse for this geometry — reduce DX/DY/DZ.", KS_RED)
+        elif total > _MAX_BG_CELLS:
+            nx, ny, nz = dims
+            _set(f"≈ {nx}×{ny}×{nz} = {total:,} cells — too fine, blockMesh "
+                 "will refuse. Increase DX/DY/DZ.", KS_RED)
+        elif total >= 0.6 * _MAX_BG_CELLS:
+            _set(f"≈ {total:,} cells — very heavy, may be slow.", "#F59E0B")
+        else:
+            nx, ny, nz = dims
+            _set(f"≈ {nx}×{ny}×{nz} = {total:,} cells.", TEXT_MUTED)
+
     def _validate(self) -> bool:
         """
         Validate all inputs and show inline error labels on failure.
@@ -535,8 +758,16 @@ class BackgroundMeshWidget(QWidget):
 
         if self._last_color == "#22C55E":
             # Success — offer the next step.
+            summary = getattr(self._worker, "_cell_summary", None)
+            if summary and summary[0] is not None:
+                total = summary[0]
+                msg = (f"Background mesh created (≈ {total:,} cells). "
+                       "Next: build the mesh around your geometry.")
+            else:
+                msg = ("Background mesh created. "
+                       "Next: build the mesh around your geometry.")
             self._msg_banner.show_success(
-                "Background mesh created. Next: build the mesh around your geometry.",
+                msg,
                 "Continue to Snappy Hex Mesh →",
                 self.request_snappy.emit)
         elif self._last_color == "#EF4444":
@@ -553,6 +784,7 @@ class BackgroundMeshWidget(QWidget):
     def cancel_run(self):
         """Esc shortcut entry: stop a running job only — never touches the
         typed inputs (unlike the Cancel button, which also clears the form)."""
+        self._stop_bbox_probe()
         if self._worker and self._worker.isRunning():
             self._worker.terminate()
             self._log.write("[Background Mesh] Cancelled.\n", "warn")
@@ -574,6 +806,7 @@ class BackgroundMeshWidget(QWidget):
                         "This clears the STL path and grid sizes you entered. "
                         "Continue?"):
                     return
+        self._stop_bbox_probe()
         if running:
             self._worker.terminate()
             self._log.write("[Background Mesh] Cancelled.\n", "warn")
@@ -588,3 +821,7 @@ class BackgroundMeshWidget(QWidget):
         self._stl_err.setVisible(False)
         self._overwrite_banner.setVisible(False)
         self._msg_banner.hide_msg()
+        # Drop the cached bounding box and reset the estimate prompt.
+        self._bbox = None
+        self._bbox_stl = None
+        self._update_estimate()

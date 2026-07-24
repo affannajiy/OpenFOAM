@@ -184,3 +184,10 @@ cython_debug/
 # PyInstaller one-dir support files copied into the app payload by build.bat
 # (regenerated every build; only the exe itself stays tracked)
 src/app/_internal/
+
+# Build artefacts — the UI exe and the Inno Setup installer exe are rebuilt on
+# every release, so they are not tracked.  Clone the repo, then run
+# src/deploy/build.bat to produce both:
+#   src/app/OpenFOAM_UI.exe   (+ src/app/_internal/, ignored above)
+#   src/deploy/dist/OpenFOAM_UI_Setup_<version>.exe
+*.exe

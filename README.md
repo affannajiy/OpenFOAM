@@ -56,6 +56,7 @@ The startup window runs these in order. Most failures come with a one-click fix 
 | WSLg display works | **Update WSL** button |
 | OpenFOAM + Python packages | One consent dialog, installed via apt |
 | Network / disk space | Warns before installing if blocked or low |
+| ParaView (optional, results viewing) | Offers a **Download ParaView** button (opens paraview.org); never blocks launch — declining once means it won't ask again |
 
 If an install needs admin rights you don't have, the launcher shows numbered manual steps with a **Copy Command** button — do them (or ask IT), relaunch, and it continues where it left off. Every error dialog has **Copy Details** for IT tickets. Log: `%TEMP%\openfoam_ui_launcher.log`.
 
@@ -89,7 +90,7 @@ Carves your geometry out of the background mesh.
 | **02 Castellation** | Unit, nCellsBetweenLevels, location-in-mesh point. **Suggest point** picks one for you — verify it's in fluid, not inside a solid |
 | **03 Snap** | Automatic (implicit feature snapping, nothing to configure) |
 | **04 Layers** | Optional boundary layers, per-patch counts |
-| **05 Generate & Run** | Live pre-flight ✓/✗ list, then renders the dict and streams the run |
+| **05 Generate & Run** | Live pre-flight ✓/✗ list (refreshes when you switch to this tab and when a run finishes — build the background mesh in Tab 1 and the ✓ appears immediately), then renders the dict and streams the run |
 
 > Hover anything for a tooltip — they are the built-in help.
 
@@ -162,7 +163,7 @@ C:\OpenFOAM\
 │                   # openfoam_ui_launcher.spec, version_info.txt, generate_icon.py
 ├── Demo-01\, Demo-02\   # Sample cases (Demo-02: power-electronics STLs)
 ├── Archived\            # Old session trees (ANR-*) + reference packages (VIJ-*)
-├── agents\              # Scoped subagent definitions
+├── .claude\             # AI assistant config: agents\ (scoped subagents)
 └── CLAUDE.md            # AI assistant guidance (full technical detail)
 ```
 

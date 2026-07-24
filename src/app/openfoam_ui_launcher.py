@@ -44,6 +44,8 @@ import time
 import base64
 import tempfile
 import json
+import glob
+import webbrowser
 
 try:
     import winreg
@@ -102,6 +104,11 @@ _LOG_PATH = os.path.join(tempfile.gettempdir(), 'openfoam_ui_launcher.log')
 # the next run back to the full self-healing checks automatically.
 _FASTPATH_SENTINEL = os.path.join(tempfile.gettempdir(),
                                   'openfoam_ui_checks_ok.json')
+
+# Sentinel written after the optional ParaView dialog is shown once, so a
+# missing (but optional) ParaView never nags the user on every launch.
+_PARAVIEW_DECLINED_SENTINEL = os.path.join(tempfile.gettempdir(),
+                                           'openfoam_ui_paraview_declined')
 
 
 def _load_fastpath():
@@ -822,6 +829,58 @@ def _manual_install_guide(splash, title, what, command, declined):
         '     continue with the remaining setup automatically.'
         f'\n\nLog: {_LOG_PATH}',
         [('close', 'Close')], report=True, copy_cmd=command)
+
+
+def _find_paraview():
+    """Return the newest installed ParaView paraview.exe path, or None.
+
+    Mirrors ui_shared.find_paraview_exe's glob but stays stdlib-only (the
+    launcher must not import PyQt/ui_shared)."""
+    matches = glob.glob(r'C:\Program Files\ParaView*\bin\paraview.exe')
+    if not matches:
+        return None
+    # Newest install wins (ParaView-5.12.0 > ParaView-5.11.0).
+    return sorted(matches)[-1]
+
+
+def _check_paraview(splash):
+    """Optional, non-blocking soft check for ParaView (Windows-side viewer).
+
+    ParaView is only used to view mesh results in 3D — the app works fine
+    without it — so this NEVER fails the launch.  If ParaView is missing a
+    single, dismissible dialog offers a download link; a sentinel then
+    suppresses the dialog on subsequent launches."""
+    path = _find_paraview()
+    if path:
+        _log(f'ParaView found: {path}')
+        return
+    if os.path.exists(_PARAVIEW_DECLINED_SENTINEL):
+        _log('ParaView not found — dialog already dismissed once, skipping')
+        return
+    _log('ParaView not found — showing optional download dialog')
+    choice = _choice_dialog(
+        splash, 'ParaView Not Found (Optional)',
+        'ParaView is optional. It is only used to view your mesh\n'
+        'results in 3D — the app works fine without it, and you can\n'
+        'install it later at any time.\n\n'
+        '"Download ParaView" opens the download page in your browser.\n'
+        'You can continue launching now either way.',
+        [('download', 'Download ParaView'),
+         ('continue', 'Continue without it')])
+    if choice == 'download':
+        _log('ParaView: user chose Download')
+        try:
+            webbrowser.open('https://www.paraview.org/download/')
+        except Exception as exc:
+            _log(f'ParaView: webbrowser.open failed: {exc}')
+    else:
+        _log('ParaView: user chose Continue without it')
+    # Remember the dismissal so we never nag on future launches.
+    try:
+        with open(_PARAVIEW_DECLINED_SENTINEL, 'w', encoding='utf-8') as fh:
+            fh.write('1')
+    except OSError as exc:
+        _log(f'ParaView: could not write sentinel: {exc}')
 
 
 def _install_wsl(splash):
@@ -1618,6 +1677,9 @@ def _run_checks(splash):
         kind = result[0]
 
         if kind == 'ok':
+            # Optional, non-blocking soft check — runs only after every
+            # required environment check has passed, and never fails launch.
+            _check_paraview(splash)
             return True
 
         if kind == 'fatal':

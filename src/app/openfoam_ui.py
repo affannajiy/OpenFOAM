@@ -150,6 +150,9 @@ class MainWindow(QMainWindow):
         # A finished run updates the ParaView button at once, so the slower
         # poll above is only a safety net for changes made outside the GUI.
         self._log.status_changed.connect(lambda *_: self._refresh_paraview_state())
+        # A finished run also updates Tab 2's pre-flight checklist / banners
+        # instantly if that tab is currently visible.
+        self._log.status_changed.connect(lambda *_: self._snappy_widget.refresh_state())
 
         self._landing.return_clicked.connect(self._on_return)
         self._root_stack.currentChanged.connect(self._update_header_visibility)
